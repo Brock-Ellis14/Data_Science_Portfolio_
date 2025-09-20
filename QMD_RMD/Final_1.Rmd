@@ -1,0 +1,321 @@
+---
+title: "MS and Gene Expression"
+output: 
+  html_document:
+    theme: cerulean
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load necessary packages
+library(tidyverse)
+library(car)
+library(mosaic)
+library(pander)
+library(ggplot2)
+library(ResourceSelection)
+```
+
+```{r}
+
+# Load the dataset (ensure proper header)
+raw <- read.delim(gzfile("C:/Users/brock/Desktop/GSE21942_series_matrix.txt.gz"), 
+                  comment.char = "!", 
+                  header = TRUE, 
+                  stringsAsFactors = FALSE)
+
+# List of probe IDs and their corresponding gene names according to google
+genes <- c("207008_at", "207849_at", "206310_at", "207113_s_at")
+gene_names <- c("CXCL10", "IL7R", "CD19", "TNF")
+
+# Filter to rows matching probe IDs
+filtered_data <- raw %>%
+  filter(ID_REF %in% genes)
+
+# Optional: Replace probe IDs with gene names for readability
+filtered_data$ID_REF <- gene_names[match(filtered_data$ID_REF, genes)]
+
+# Transpose the expression data
+gene_expr <- as.data.frame(t(filtered_data[,-1]))  # exclude ID_REF before transpose
+
+# Assign column names (genes) from filtered_data$ID_REF
+colnames(gene_expr) <- filtered_data$ID_REF
+
+# Removed sample rows not wanted
+gene_expr <- gene_expr[!rownames(gene_expr) %in% c("GSM545845", "GSM545844"), ]
+
+# Add group labels (15 controls, then 12 MS)
+gene_expr$Group <- c(rep("Control", 15), rep("MS", 12))
+
+# Move Group column to the front
+gene_expr <- gene_expr %>% relocate(Group)
+```
+
+## Introduction
+
+Multiple Sclerosis (MS) is a long-term autoimmune condition that impacts the central nervous system and can cause inflammation and damage to nerves. One area researchers are focusing on is gene expression—specifically. Finding patterns that might help tell apart people with MS from those without, could be huge. Learning more about these gene markers could improve how we diagnose MS, guide treatment options, and help us better understand what’s happening in the body during the disease.
+
+In this analysis, I focus on four genes—**CXCL10**, **IL7R**, **CD19**, and **TNF**—that have been previously associated with immune activity and MS, according to nih.gov
+
+In this project, I focused on four specific genes that have been connected to immune system activity and possibly to MS in past research: **CXCL10**, **IL7R**, **CD19**, and **TNF**.
+
+- **CXCL10** helps attract immune cells to areas of inflammation and has been found in higher levels in MS lesions.
+- **IL7R** is the gene for the interleukin-7 receptor, which plays a role in T cell development and has been linked to MS risk in genetic studies.
+- **CD19** is a surface marker for B cells, which are now understood to contribute to MS in more ways than previously thought.
+- **TNF** is a well-known inflammatory molecule with a complicated role in MS — sometimes harmful, sometimes protective.
+
+The main goals of my analysis were:
+
+1. To check if these genes show significant differences in expression between MS patients and healthy controls.
+2. To see whether any of these genes could help predict MS status using a basic logistic regression model.
+
+I used a combination of summary statistics, hypothesis testing, and logistic regression to explore how useful these gene expression patterns might be for understanding or identifying MS.
+
+**Research Question**
+Do the expression levels of CXCL10, IL7R, CD19, and TNF significantly differ between MS and control groups?
+
+## Statistical Difference
+
+### First Looks
+
+To begin exploring the data, I summarize the expression levels of each gene across the two groups: MS and Control. This includes calculating key statistics such as the mean, median, minimum, and maximum values using the `favstats()` function.
+
+In addition to numerical summaries, I also include boxplots for each gene. These visualizations make it easier to compare the spread, central tendency, and presence of outliers between MS and Control participants.
+
+**GENE CD19**
+```{r}
+pander(favstats(CD19 ~ Group, data=gene_expr))
+
+ggplot(gene_expr, aes(x=Group, y=CD19, fill=Group)) +
+  geom_boxplot() +
+  labs(title='CD19 Gene Expression, MS vs NON-MS', x='Groups', y='Gene Expression Levels') +
+  theme_grey()
+```
+
+The summary statistics for CD19 suggest a potential difference in expression levels between MS and control groups. Although the primary focus here is on medians due to the nonparametric nature of the data, it is noteworthy that MS patients generally exhibit higher expression levels. Interestingly, the maximum value in the control group (26.1) exceeds that of the MS group (20.9), indicating some overlap and potential outliers. Overall, the control group appears to have lower typical expression than the MS group.
+
+**GENE CXCL10**
+```{r}
+pander(favstats(CXCL10 ~ Group, data=gene_expr))
+
+ggplot(gene_expr, aes(x=Group, y=CXCL10, fill=Group)) +
+  geom_boxplot() +
+  labs(title='CXCL10 Gene Expression, MS vs NON-MS', x='Groups', y='Gene Expression Levels') +
+  theme_grey()
+```
+
+CXCL10 shows much higher expression levels overall compared to CD19. The average expression in MS patients is substantially elevated—about 150 units higher than in the control group. The range of MS samples spans approximately 345 to 472, while control group values range from 184 to 322. This substantial difference suggests potential biological significance, which will be explored through formal testing.
+
+**GENE TNF**
+```{r}
+pander(favstats(TNF ~ Group, data=gene_expr))
+
+ggplot(gene_expr, aes(x=Group, y=TNF, fill=Group)) +
+  geom_boxplot() +
+  labs(title='TNF Gene Expression, MS vs NON-MS', x='Groups', y='Gene Expression Levels') +
+  theme_grey()
+```
+
+For TNF, the results are less clear. The median expression in MS patients (15.45) is slightly lower than that of the control group (16.3), while the mean is slightly higher in MS (18.49 vs. 17.25). These mixed signals suggest potential non-significance, though formal testing is required to confirm this.
+
+**GENE IL7R**
+```{r}
+pander(favstats(IL7R ~ Group, data=gene_expr))
+
+ggplot(gene_expr, aes(x=Group, y=IL7R, fill=Group)) +
+  geom_boxplot() +
+  labs(title='IL7R Gene Expression, MS vs NON-MS', x='Groups', y='Gene Expression Levels') +
+  theme_grey()
+```
+
+Expression levels for IL7R are quite close between the two groups. The mean for MS patients is 6.25 versus 6.20 in controls—a small numerical difference that could still be meaningful given the low expression scale. Statistical testing will help determine whether this subtle difference is significant.
+
+We will now take a look at the qqPlots to assess normality of the distributions across each group and gene:
+
+```{r}
+qqPlot(CD19 ~ Group, data=gene_expr)
+qqPlot(CXCL10 ~ Group, data=gene_expr)
+qqPlot(TNF ~ Group, data=gene_expr)
+qqPlot(IL7R ~ Group, data=gene_expr)
+```
+
+**Based on the distributional patterns observed:**
+
+We will perform nonparametric testing (**Wilcoxon rank-sum test) for CD19**, due to the presence of outliers and non-normality, confirmed by qqplots and basic stats.
+
+For the remaining genes (**CXCL10, TNF, IL7R), we will proceed with independent samples t-tests**, as their distributions appear sufficiently normal.
+
+These statistical tests will help determine whether observed group differences in gene expression are statistically significant and potentially biologically relevant.
+
+### Hypothesis'
+
+**Gene CD19**
+$$
+H_0: \text{Median}_{\text{Control expression levels}} - \text{Median}_{\text{MS expression levels}} = 0 \\
+H_a: \text{Median}_{\text{Control expression levels}} - \text{Median}_{\text{MS expression levels}} \ne 0
+$$
+
+**Gene CXCL10**
+$$
+H_0: \mu_{\text{Control expression levels}} - \mu_{\text{MS expression levels}} = 0 \\
+H_a: \mu_{\text{Control expression levels}} - \mu_{\text{MS expression levels}} \ne 0
+$$
+
+**Gene TNF**
+$$
+H_0: \mu_{\text{Control expression levels}} - \mu_{\text{MS expression levels}} = 0 \\
+H_a: \mu_{\text{Control expression levels}} - \mu_{\text{MS expression levels}} \ne 0
+$$
+
+**Gene IL7R**
+$$
+H_0: \mu_{\text{Control expression levels}} - \mu_{\text{MS expression levels}} = 0 \\
+H_a: \mu_{\text{Control expression levels}} - \mu_{\text{MS expression levels}} \ne 0
+$$
+The alpha for each test will be the standard $$\alpha: .05$$
+
+### Statistical Testing
+
+#### Gene CD19
+
+To assess whether MS patients additional affect on gene CD19 expression levels, I will perform a wilcoxin rank sum test, which assesses any meaningful difference in medians between two groups (MS and Control). 
+
+```{r}
+pander(wilcox.test(CD19 ~ Group, data = gene_expr, alternative = "two.sided"))
+```
+
+As you can see, with a p value of .0422, we can reasonably reject the null hypothesis and assert a statistical signficance between MS and non-MS gene CD19 expression levels. 
+
+
+#### Genes CXCL10, TNF, IL7R
+
+To assess whether MS patients additional affect on CXCL10, TNF, and IL7R gene expression levels, I will perform independent T-tests for each, which assesses any meaningful difference in means between two groups (MS and Control).
+
+```{r}
+pander(t.test(CXCL10 ~ Group, data = gene_expr, alternative = "two.sided"))
+```
+
+For gene **CXCL10**, the p-value of **.001482** was well below the threshold of .05, indicating I can reject the null hypothesis and assert MS and non-MS people have different gene CXCL10 expression levels.
+
+```{r}
+pander(t.test(TNF ~ Group, data = gene_expr, alternative = "two.sided"))
+```
+
+Gene **TNF**, had a p-value of **.6955** , which is well above the threshold of .05, indicating I fail to reject the null hypothesis. According to my data, gene TNF expression levels of MS vs NON-MS individuals seems to have no statistical difference.
+
+```{r}
+pander(t.test(IL7R ~ Group, data = gene_expr, alternative = "two.sided"))
+```
+
+Gene **IL7R**, had a p-value of **.6269** , which is well above the threshold of .05, indicating I fail to reject the null hypothesis. According to my data, gene IL7r expression levels of MS vs NON-MS individuals seems to have no statistical difference. 
+
+Because genes CXCL10 and CD19 expression levels were the only genes that had a meaningful difference across MS/NON-MS individuals, I will now look to build logistic regression models for each to predict whether an individual has MS or not based on these gene expressio levels.
+
+## Building a Model
+
+To explore the potential of gene expression as a diagnostic tool for Multiple Sclerosis, I begin by building simple logistic regression models using individual genes as predictors. The goal is to evaluate whether any single gene, on its own, can meaningfully predict MS status.
+
+I built each model to estimate the chances that someone in the dataset has MS, based on their gene expression. I will first assess overall model significance using the p-value from the regression output. Then, I’ll examine the intercept and slope coefficients, interpret their meaning in context, and visualize the fitted logistic curve to better understand how well each gene separates MS from control cases.
+
+This step provides a foundation for determining whether gene expression levels carry predictive value and which genes are most promising for further modeling. 
+
+### Hypothesis'
+
+For each of the gene expressions, namely CD19 and CXCL10, the null and alternative hypothesis are as follows:
+
+$$
+H_0: \beta_1 = 0 \\
+H_a: \beta_1 \ne 0 \\
+\alpha: .05
+$$
+\beta_1\ represents the effect of the gene expression variable  on the **log-odds** of having MS. A positive \beta_1\ indicates that as gene expression increases, the likelihood of MS increases. In practical terms, each one-unit increase in expression is associated with a change in the probability of being diagnosed with MS, depending on the direction and magnitude of \beta_1\.
+
+### Diagnostics
+
+**Gene CD19**
+```{r}
+gene_expr2 <- gene_expr %>%
+  mutate(GroupBinary = ifelse(Group == "Control", 0, 1))
+
+my_glm19 = glm(GroupBinary ~ CD19, data=gene_expr2, family=binomial)
+
+pander(hoslem.test(my_glm19$y, my_glm19$fitted, g=5))
+```
+
+The Hoslem test yielded a test statistic of 5.04 (df = 3, p = 0.1688), indicating no significant difference between observed and predicted probabilities. That tells me the CD19 model kind of fits, but probably isn’t strong enough on its own.
+
+**Gene CXCL10**
+```{r}
+my_glm10 = glm(GroupBinary ~ CXCL10, data=gene_expr2, family=binomial)
+pander(hoslem.test(my_glm10$y, my_glm10$fitted, g=5))
+```
+
+For the CXCL10 model, the test statistic was 1.40 (df = 3, p = 0.705), suggesting a very good fit with no meaningful deviation between predicted and observed values. In other words, I fail to reject the null hypothesis as this model is a good fit.
+
+### Fitting
+
+```{r}
+pander(summary(my_glm19))
+```
+
+In this model, the intercept is estimated at around \(-1.799\), and the coefficient for CD19 is 0.117. This suggests that for every one-unit increase in CD19 expression, the **log-odds** of having MS go up by about 0.117.
+
+But the p-value for CD19 is **0.2727**, which is quite a bit higher than the usual 0.05 threshold. So, we **fail to reject the null hypothesis**, meaning CD19 doesn’t come across as a **statistically significant predictor** of MS in this dataset.
+
+```{r}
+pander(summary(my_glm10))
+```
+
+In this model, the intercept is about -6.1, and the coefficient for CXCL10 is around 0.01495. That means each one-unit increase in CXCL10 expression raises the **log-odds** of having MS by roughly 0.015.
+
+The p-value for CXCL10 is **0.0102**, which is below the typical cutoff of 0.05, so it looks like CXCL10 is a **statistically significant predictor** of MS in this dataset. The drop in deviance (from 37.10 to 25.32) also points to a better model fit when CXCL10 is included.
+
+To better see how this looks in the data, I’ll make a scatter plot with the logistic curve overlaid.
+
+```{r}
+ggplot(gene_expr2, aes(x = CD19, y = GroupBinary)) +
+  geom_point(color = "blue", alpha = 0.6) +
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial"), 
+              se = FALSE, 
+              color = "red") +
+  labs(
+    title = "Logistic Regression: CD19 vs MS Diagnosis",
+    x = "CD19 Expression Level",
+    y = "Probability of MS (1 = MS, 0 = Control)"
+  ) +
+  theme_minimal()
+```
+
+The plot above shows the logistic regression curve for CD19 expression and MS diagnosis. The red curve trends upward a bit, which suggests that higher CD19 levels are somewhat linked to a higher chance of having MS. Still, the relationship looks pretty weak. The predicted probabilities only shift from around 25% to 75%, and the data points mostly stay close to 0 or 1 since the outcome is binary.
+
+All in all, the shallow slope and overlap between MS and control groups make it seem like CD19 on its own might not be a strong or dependable predictor for MS in this dataset.
+
+```{r}
+ggplot(gene_expr2, aes(x = CXCL10, y = GroupBinary)) +
+  geom_point(color = "blue", alpha = 0.6) +
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial"), 
+              se = FALSE, 
+              color = "red") +
+  labs(
+    title = "Logistic Regression: CXCL10 vs MS Diagnosis",
+    x = "CXCL Expression Level",
+    y = "Probability of MS (1 = MS, 0 = Control)"
+  ) +
+  theme_minimal()
+
+```
+
+The plot above shows the logistic regression curve for CXCL10 expression and how it relates to MS diagnosis. The red curve follows the expected S-shape for logistic models, with the probability of having MS increasing as CXCL10 levels rise—especially between about 300 and 500 units.
+
+Compared to CD19, the separation between MS and control groups looks more noticeable with CXCL10. This lines up with the earlier stats and suggests that CXCL10 might be a more useful predictor for identifying MS in this dataset.
+
+## Conclusion
+
+This analysis looked at whether the expression levels of four immune-related genes—**CD19**, **CXCL10**, **TNF**, and **IL7R**—differed between individuals with Multiple Sclerosis (MS) and those without, and whether these genes could help predict MS using logistic regression.
+
+The results suggest that **CXCL10** and **CD19** may play some role, with CXCL10 showing a clearer and more statistically significant difference between groups. CD19 showed a smaller, borderline significant difference. **TNF** and **IL7R** did not appear to differ much between groups and were not carried forward into the modeling.
+
+Logistic regression mostly supported these findings. The model for **CXCL10** was statistically significant (`p = 0.0102`), showed a sharp prediction curve, and passed the Hoslem test, suggesting a reasonably good fit. The **CD19** model, however, was not statistically significant (`p = 0.2727`) and had a flatter curve, suggesting it may not be a reliable standalone predictor in this dataset.
