@@ -39,13 +39,13 @@ LetsPlot.setup_html(isolated_frame=True)
 
 
 ```{python}
-sqlite_file = 'lahmansbaseballdb.sqlite'
+sqlite_file = 'lahman_1871-2022.sqlite'
 con = sqlite3.connect(sqlite_file)
 ```
 
 
 ```{python}
-#tables = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table';", con)
+tables = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table';", con)
 
 byuid = pd.read_sql_query("SELECT c.playerID, c.schoolID, s.salary, c.yearID, s.teamID FROM collegeplaying c JOIN salaries s ON c.playerID = s.playerID WHERE schoolID LIKE '%byuid%' ORDER BY s.salary DESC", con)
 print(byuid)
@@ -84,7 +84,8 @@ annotations = pd.DataFrame({
     'wins_per_million': [query['wins_per_million'].max() * 0.9] * 2,
     'label': ['BOS wins World Series', 'BOS wins World Series']
 })
-
+```
+```{python}
 ggplot(query, aes(x='yearID', y='wins_per_million', color='teamID')) + \
     geom_line(size=1) + \
     geom_point() + \
@@ -132,9 +133,19 @@ ggplot(query, aes(x='teamID', y='salary_millions', fill='teamID')) + \
   xlab("Team") + \
   ylab("Total Salary (Millions)") + \
   theme_bw()
+```
 
+```{python}
 
-
+(
+    ggplot(query, aes(x='salary_millions', y='wins', color='teamID'))
+    + geom_point(size=4, alpha=0.7)
+    + geom_smooth(method='lm')
+    + ggtitle("Wins vs. Salary per Season (2005–2016)")
+    + xlab("Total Salary (Millions USD)")
+    + ylab("Wins per Season")
+    + theme_bw()
+)
 ```
 
 The first boxplot confirms that the Red Sox consistently outperformed the Marlins in regular-season wins between 2005 and 2016. On average, Boston achieved 87.83 wins per season, while Miami averaged just 76.08. On the other hand, BOS's mean salary expenditure person was significantly higher than MIA's- with BOS being $149,913,559 compared to MIA's $51,424,50. These results reinforce that higher payrolls are often associated with better regular-season outcomes, though they do not necessarily indicate spending efficiency or postseason success. If you can notice, these box-plots seem to be similarly positioned on the graph in relation to one another. Does this indicate a linear relationship between salary and win success?
