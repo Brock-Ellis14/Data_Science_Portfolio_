@@ -1,0 +1,192 @@
+---
+title: "Client Report - If not now, when?"
+subtitle: "Unit 3 Task 3"
+author: "Brock Ellis"
+format:
+  html:
+    self-contained: true
+    page-layout: full
+    title-block-banner: true
+    toc: true
+    toc-depth: 3
+    toc-location: body
+    number-sections: false
+    html-math-method: katex
+    code-fold: true
+    code-summary: "Show the code"
+    code-overflow: wrap
+    code-copy: hover
+    code-tools:
+        source: false
+        toggle: true
+        caption: See code
+project:
+  type: website
+  output-dir: docs
+execute: 
+  warning: false
+    
+---
+
+```{python}
+import pandas as pd 
+import numpy as np
+import sqlite3
+from lets_plot import *
+import altair as alt
+
+LetsPlot.setup_html(isolated_frame=True)
+
+df = pd.read_json("https://github.com/byuidatascience/data4missing/raw/master/data-raw/flights_missing/flights_missing.json")
+```
+
+
+```{python}
+# Clean NA values
+df = df.replace([pd.NA, 999, -999, None, '', 'NULL', 'NA'], np.nan)
+
+# Convert month column to category dtype
+df["month"] = df["month"].astype("category")
+
+# Replaced weird values
+df['num_of_delays_carrier'] = df['num_of_delays_carrier'].replace('1500+', 1550)
+df["num_of_delays_carrier"] = df["num_of_delays_carrier"].astype('int64')
+
+# # Fill in NA values with the mean of said columns
+for col in ['num_of_flights_total', 'num_of_delays_carrier', 'num_of_delays_late_aircraft', 'num_of_delays_nas', 'num_of_delays_security', 'num_of_delays_weather', 'num_of_delays_total']:
+    df[col] = df[col].fillna(df[col].mean())
+
+# Created a mask to calculate specific months
+mask_summer = df['month'].isin(['April', 'May', 'June', 'July','August'])
+
+# Calculated relevant weights on said data
+nas_weather = np.where(mask_summer,
+    df['num_of_delays_nas'] * 0.40,
+    df['num_of_delays_nas'] * 0.65)
+
+# Calculated relevant weights on said data
+df['flights_delayed_due_to_weather'] = (
+    df['num_of_delays_weather'] +
+    (df['num_of_delays_late_aircraft'] * 0.30) +
+    nas_weather
+)
+df2 = df
+
+# Columns to sum and keep
+columns_to_sum = [
+    'num_of_flights_total',
+    'num_of_delays_total', 
+    'num_of_delays_carrier',  
+    'num_of_delays_security', 
+    'flights_delayed_due_to_weather',
+]
+df_total = df[columns_to_sum].sum().to_frame().T
+
+# Calculate Percentages 
+percentages = pd.DataFrame({
+    "total_delays": df_total["num_of_delays_total"],
+    "carrier_%": df_total["num_of_delays_carrier"] / df_total["num_of_delays_total"] * 100,
+    "security_%": df_total["num_of_delays_security"] / df_total["num_of_delays_total"] * 100,
+    "weather_%": df_total["flights_delayed_due_to_weather"] / df_total["num_of_delays_total"] * 100
+})
+```
+
+To better understand which type of delay has the greatest overall impact, we calculated the total number of delays for each category—Carrier, Security, and Weather—and then determined their proportion relative to total delays. The Weather Delay calculation includes a weighted estimate that accounts for late aircraft and NAS-related delays during summer months. The following chart visualizes the percentage contribution of each delay type across the entire dataset. 
+```{python}
+# Tidy version: melt the delay reasons into rows
+tidy_percentages = percentages.melt(
+    value_vars=['carrier_%', 'security_%', 'weather_%'],
+    var_name='reason',
+    value_name='percentage'
+)
+
+# Chart it 
+chart = alt.Chart(tidy_percentages).mark_bar().encode(
+    x=alt.X('reason:N', title='Reason for Delay'),
+    y=alt.Y('percentage:Q', title='Percentage of Total'),
+    tooltip=['reason', 'percentage']
+).properties(
+    title='Delay Reasons as Percent of Total'
+)
+chart.show()
+
+```
+
+```{python}
+table = alt.Chart(tidy_percentages).mark_text().encode(
+    y=alt.Y('Variable:N', axis=alt.Axis(title='Variable')),
+    text=alt.Text('percentage:Q'),
+    color=alt.value('black')
+).properties(
+    title='Correlation Table',
+    width=300
+)
+table.show()
+```
+
+The results show that weather-related delays are the most significant, accounting for roughly 34.43% of all delays. This includes direct weather delays as well as estimated contributions from NAS and late aircraft during summer months. Carrier delays make up 22.08%, while security delays are minimal at just 0.16%. These findings suggest that weather is the most impactful and unpredictable factor in flight scheduling, followed by operational carrier issues. Security disruptions are rare by comparison and contribute little to overall delay totals.
+
+To gain deeper insight, we now break down these delay types by airport. The following section calculates the percentage contribution of carrier, security, and weather delays at each individual airport to examine how the delay patterns vary by location.
+
+```{python}
+# Relevant columns selected
+df2 = df2[[
+    'airport_code',
+    'num_of_flights_total',
+    'num_of_delays_total', 
+    'num_of_delays_carrier',  
+    'num_of_delays_security', 
+    'flights_delayed_due_to_weather'
+]]
+
+# Grouped by airport_code and summed all columns
+df2 = df2.groupby(["airport_code"]).sum()
+
+# Calculate Percentages 
+percentages2 = pd.DataFrame({
+    "total_delays": df2["num_of_delays_total"],
+    "carrier_%": df2["num_of_delays_carrier"] / df2["num_of_delays_total"] * 100,
+    "security_%": df2["num_of_delays_security"] / df2["num_of_delays_total"] * 100,
+    "weather_%": df2["flights_delayed_due_to_weather"] / df2["num_of_delays_total"] * 100
+})
+```
+
+```{python}
+# id_vars for grouping
+tidy_percentages2 = percentages2.reset_index().melt(
+    id_vars='airport_code',
+    value_vars=['carrier_%', 'security_%', 'weather_%'],
+    var_name='reason',
+    value_name='percentage'
+)
+
+# Chart it 
+chart2 = alt.Chart(tidy_percentages2).mark_bar().encode(
+    x=alt.X('airport_code:N', title='Airport Code'),
+    y=alt.Y('percentage:Q', title='Percentage of Total'),
+    color=alt.Color('reason:N', title='Type of Delay'),
+    tooltip=['reason', 'percentage']
+).properties(
+    title='Proportion of Delay by Each Airport'
+)
+chart2.show()
+```
+
+```{python}
+# Create a text table with airport on x-axis and reason on y-axis
+table2 = alt.Chart(tidy_percentages2).mark_text().encode(
+    x=alt.X('airport_code:N', title='Airport Code'),
+    y=alt.Y('reason:N', title='Type of Delay'),
+    text=alt.Text('percentage:Q', format='.2f'),
+    color=alt.value('black')
+).properties(
+    title='Delay Percentages by Airport and Reason',
+    width=400,
+    height=200
+)
+
+table2.show()
+
+```
+
+The results show that weather delays are the most consistent issue across all airports, with ORD experiencing the highest at 37.31%. SFO and ATL also show high weather impacts. Carrier delays are most significant at SAN (32.62%) and SLC (31.72%), while ORD has the lowest at 17.72%, showing stronger operational reliability. Security delays remain minimal at all airports, all under 0.5%. In summary, weather is the top delay factor system-wide, but some airports face greater challenges from airline-specific issues.

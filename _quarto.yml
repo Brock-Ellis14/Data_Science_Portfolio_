@@ -1,0 +1,23 @@
+project:
+  type: website
+  output-dir: docs              # GitHub Pages can serve from /docs
+  resources:
+    - HTML/**                   # copy your existing HTML files through to /docs/HTML
+
+website:
+  title: "Your Name — Data Science Portfolio"
+  navbar:
+    left:
+      - text: Projects
+        href: index.qmd
+      - text: About
+        href: about.qmd
+  page-navigation: true
+  search: true
+
+format:
+  html:
+    theme: cosmo
+    toc: true
+    code-copy: true
+    smooth-scroll: true

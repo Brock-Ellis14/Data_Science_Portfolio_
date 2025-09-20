@@ -1,0 +1,301 @@
+---
+title: "Client Report - Star Wars for Dummies"
+subtitle: "Unit 5 Task 3"
+author: "Brock"
+format:
+  html:
+    self-contained: true
+    page-layout: full
+    title-block-banner: true
+    toc: true
+    toc-depth: 3
+    toc-location: body
+    number-sections: false
+    html-math-method: katex
+    code-fold: true
+    code-summary: "Show the code"
+    code-overflow: wrap
+    code-copy: hover
+    code-tools:
+        source: false
+        toggle: true
+        caption: See code
+project:
+  type: website
+  output-dir: docs
+execute: 
+  warning: false
+    
+---
+
+```{python}
+import pandas as pd 
+import numpy as np
+from lets_plot import *
+from sklearn.model_selection import train_test_split
+from sklearn.naive_bayes import GaussianNB
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.ensemble import RandomForestRegressor
+from sklearn import metrics
+from sklearn.metrics import *
+
+LetsPlot.setup_html(isolated_frame=True)
+```
+
+
+```{python}
+LetsPlot.setup_html(isolated_frame=True) 
+
+new_col_names = ["id", "seen_any", "fan_starwars", 
+"seen_Ep_I", "seen_Ep_II", "seen_Ep_III", "seen_Ep_IV", "seen_Ep_V", "seen_Ep_VI", 
+"rank_Ep_I", "rank_Ep_II", "rank_Ep_III", "rank_Ep_IV", "rank_Ep_V", "rank_Ep_VI", 
+"fav_han", "fav_luke", "fav_leia", "fav_anakin", "fav_obi", "fav_palpatine", "fav_darth", "fav_lando", "fav_boba", "fav_c3po", "fav_r2", "fav_jar", "fav_padme", "fav_yoda", 
+"who_shot_first", "familiar_expanded_universe", "fan_expanded_universe", "fan_startrek", "gender", "age", "income", "educ", "region"] 
+
+df = pd.read_csv("https://github.com/fivethirtyeight/data/raw/master/star-wars-survey/StarWars.csv", encoding_errors="ignore", names = new_col_names, skiprows = 2) 
+
+```
+
+## Introduction
+
+The goal of this analysis was to determine whether *Star Wars*-related survey responses could be used to predict whether a person earns more than \$50,000 annually. Using a dataset from FiveThirtyEight, I cleaned and preprocessed the data to make it suitable for machine learning. This included transforming categorical `age` and `income` ranges into numeric values, encoding `educ` levels, and scoring *Star Wars* character favorability rankings numerically. I then prepared the data for modeling by one-hot encoding all remaining categorical variables and handling missing values appropriately.
+
+
+```{python}
+# Recode age to midpoints or random
+age_map = {
+    '18-29': 23,
+    '30-44': 37,
+    '45-60': 52.5
+}
+np.random.seed(42)  # reproducibility
+mask = df['age'] == '> 60'
+
+
+# Replace categories
+df['age'] = df['age'].replace(age_map)
+
+df.loc[mask, 'age'] = np.random.randint(60, 81, size=mask.sum())
+```
+
+```{python}
+df['educ'] = df['educ'].astype('category')
+df['educ'] = pd.factorize(df['educ'])[0]
+df['educ'] = df['educ'].astype('category')
+```
+
+```{python}
+# Convert Income ranges to values 0 for less than 50k
+income_map = {
+    '$0 - $24,999': 0,
+    '$25,000 - $49,999': 0,
+    '$50,000 - $99,999': 1,
+    '$100,000 - $149,999': 1,
+    '$150,000+': 1
+}
+
+# Replace
+df.loc[:,'income'] = df.loc[:,'income'].replace(income_map)
+```
+
+```{python}
+# Convert fav_ columns to number rank
+fav_map = {
+  'Very favorably': 2,
+  'Somewhat favorably': 1,
+  'Neither favorably nor unfavorably (neutral)': 0,
+  'Unfamiliar (N/A)': 0,
+  'Somewhat unfavorably': -1,
+  'Very unfavorably': -2
+}
+
+# Replace
+df.iloc[:, list(range(15,29))] = df.iloc[:, list(range(15,29))].replace(fav_map)
+```
+
+```{python}
+df1 = df.drop(df.columns[0], axis=1)
+
+# Separate columns to exclude from one-hot encoding
+encode_mask = df1.columns.str.contains(r'fav_|income|educ|age', case=False)
+new_encode = df1.loc[:, ~encode_mask].astype("category")
+old_encode = df1.loc[:, encode_mask]
+
+# One-hot encode the remaining categorical/object columns
+sw_encoded = pd.get_dummies(new_encode, dummy_na=True, prefix_sep='_', drop_first=False, dtype=int)
+sw_encoded.columns = sw_encoded.columns.str.replace(' ', '_')
+
+# Concatenate back the excluded columns
+sw = pd.concat([df.iloc[:,0], sw_encoded, old_encode], axis=1)
+
+# Drop rows with 7 or more nan
+sw = sw[sw.isna().sum(axis=1) <= 7]
+
+# Drop rows with nan in outcome variable
+sw = sw.dropna(subset=['income'])
+
+```
+
+## Data Preprocessing Recap
+
+To begin, I transformed `age` into numeric midpoints and randomly assigned values between 60 and 80 for respondents who reported `> 60`. The `income` variable was recoded into a binary classification target, where:
+
+$$
+\texttt{income} =
+\begin{cases}
+0 & \text{if income } < \$50{,}000 \\\\
+1 & \text{if income } \geq \$50{,}000
+\end{cases}
+$$
+
+Favorability ratings for characters (columns prefixed with `fav_`) were mapped to a numerical scale from $-2$ (very unfavorable) to $+2$ (very favorable). I excluded high-cardinality columns from one-hot encoding (`fav_`, `income`, `educ`, and `age`), then encoded the remaining categorical variables using `pd.get_dummies()` with `dummy_na=True`. I then dropped rows with 7 or more missing values or any missing values in the target variable.
+
+## Machine Learning Model Introduction
+
+After preprocessing, I assigned the predictors to `x` and the binary target variable to `y = income`. The dataset was split into training and test sets using a 75/25 ratio. Missing values in `x` were either filled with 0 (for models that require complete input like `GradientBoostingClassifier` and `GaussianNB`) or left as-is if the model could tolerate it. 
+
+I trained and evaluated the following classifiers:
+
+- `RandomForestClassifier`
+- `GradientBoostingClassifier`
+- `DecisionTreeClassifier`
+- `GaussianNB` (Naive Bayes)
+
+Each model's performance was evaluated using `accuracy_score` and `classification_report` from `sklearn.metrics`.
+
+
+```{python}
+# Assign Predictors and outcome variables
+x = sw.drop(columns='income')
+y = sw['income'].astype(int)
+```
+
+```{python}
+# Split dataset into training and testing sets
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.25, random_state=50)
+
+# Split and fill na's for gradient/Gassian
+x_train_na = x_train.fillna(0)
+x_test_na = x_test.fillna(0)
+```
+
+```{python}
+# Train Random Forest Classifier
+classifier_DT = RandomForestClassifier(
+    random_state=70,
+    max_depth=9
+
+)
+classifier_DT.fit(x_train, y_train)
+
+# Train Gradient Boosting Classifier
+classifier_DT2 = GradientBoostingClassifier(
+  random_state=70,
+  learning_rate=.05,
+  max_depth=3
+
+)
+classifier_DT2.fit(x_train_na, y_train)
+
+# Train Decision Tree Classifier
+classifier_DT3 = DecisionTreeClassifier(
+    random_state=70,
+    max_depth=3
+)
+classifier_DT3.fit(x_train, y_train)
+
+# Train Gaussian NB Classifier
+classifier_DT4 = GaussianNB()
+classifier_DT4.fit(x_train_na, y_train)
+```
+
+```{python}
+y_pred = classifier_DT.predict(x_test)
+print("Random Forest:")
+print("Accuracy:", accuracy_score(y_test, y_pred))
+print(classification_report(y_test, y_pred))
+
+y_pred2 = classifier_DT2.predict(x_test_na)
+print("Gradient Boosting:")
+print("Accuracy:", accuracy_score(y_test, y_pred2))
+print(classification_report(y_test, y_pred2))
+
+y_pred3 = classifier_DT3.predict(x_test)
+print("Decision Tree:")
+print("Accuracy:", accuracy_score(y_test, y_pred3))
+print(classification_report(y_test, y_pred3))
+```
+```{python}
+y_pred4 = classifier_DT4.predict(x_test_na)
+print("Gaussian NB:")
+print("Accuracy:", accuracy_score(y_test, y_pred4))
+print(classification_report(y_test, y_pred4))
+```
+
+```{python}
+model_scores = pd.DataFrame({
+    'Model': ['Random Forest', 'Gradient Boosting', 'Decision Tree', 'Gaussian NB'],
+    'Accuracy': [0.690, 0.667, 0.625, 0.649]
+})
+
+ggplot(model_scores, aes(x='Model', y='Accuracy', fill='Model')) + \
+    geom_bar(stat='Identity', size=7) + \
+    coord_flip() +\
+    labs(title='Model Accuracy Comparison', y='Accuracy') + \
+    theme_bw() + \
+    theme(
+        axis_text_x=element_text(hjust=.5, size=12),
+        axis_text_y=element_text(size=12),
+        plot_title=element_text(size=16, face='bold', hjust=0.5),
+        legend_position='none'
+    )
+```
+
+## Model Performance Analysis
+
+**Random Forest** achieved the highest overall accuracy at **69.0%**, with strong recall (**94%**) and F1-score (**0.80**) for predicting individuals earning at least \$50k. However, it performed poorly on the lower-income class with just **22%** recall.
+
+**Gradient Boosting** followed with an accuracy of **66.7%**. It showed more balanced performance, achieving **83%** recall for the high-income class and **36%** recall for the low-income group. This made it more reliable in identifying both income levels.
+
+**Decision Tree** yielded a lower accuracy of **62.5%** and weaker class performance, reflecting its simpler structure and lack of boosting or bagging enhancements.
+
+**Gaussian Naive Bayes** reached **64.9%** accuracy but completely failed to classify low-income respondents, with **0%** precision and recall for class 0. It was heavily biased toward predicting class 1 only.
+
+## Conclusion and Recommendation
+
+While Gradient Boosting offered a more balanced performance across both classes, I believe the Random Forest Classifier is the better choice in this context. Since the primary goal is to accurately predict whether someone earns more than $50,000, overall accuracy and precision for the high-income class matter more than recall for the low-income group. Random Forest achieved the highest accuracy and the strongest precision for class 1, making it more effective at identifying higher earners — which aligns directly with the objective of this analysis.
+
+### Feature Importance in Gradient Boosting Results
+
+After training the RandomForestClassifier, I examined which features contributed most to the model’s predictions.
+
+Using the feature_importances_ attribute of the trained model, I identified the top predictors for determining whether a respondent earns over $50,000. These features reflect a combination of demographic factors and Star Wars-related preferences that the model found most useful for predicting income level.
+
+Here are the top 10 most important features:
+
+```{python}
+# Get top 10 features by importance
+importances = classifier_DT.feature_importances_
+features = x_train.columns
+
+importance_df = pd.DataFrame({'Feature': features, 'Importance': importances})
+top_features = importance_df.sort_values(by='Importance', ascending=False).head(10)
+
+ggplot(top_features, aes(x='Feature', y='Importance', fill='Feature')) + \
+    geom_bar(stat='identity', color='black', size=0.4) + \
+    ggtitle('Feature Importance - Random Forest') + \
+    xlab('Feature') + \
+    ylab('Importance') + \
+    theme_minimal() + \
+    theme(
+        axis_text_x=element_text(angle=45, hjust=1, size=12),
+        axis_text_y=element_text(size=12),
+        plot_title=element_text(size=16, face='bold', hjust=0.5),
+        legend_position='none'
+    )
+```
+
+In the Random Forest model, feature importance was more evenly distributed across a mix of predictors. Interestingly, ID ranked highest,even though it is not a meaningful variable. Among real features, age and educ were most important, which aligns with expected links between demographics and income. Several Star Wars favorability ratings — including fav_jar, fav_darth, fav_anakin, and fav_padme — also contributed meaningfully. This broader distribution of importance suggests the model draws on a variety of demographic and preference-based factors, adding to its overall robustness.

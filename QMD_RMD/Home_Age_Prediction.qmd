@@ -1,0 +1,393 @@
+
+---
+title: "Predicting Home Age with Machine Learning"
+subtitle: "STRETCH"
+author: "Brock Ellis"
+format:
+  html:
+    self-contained: true
+    page-layout: full
+    title-block-banner: true
+    toc: true
+    toc-depth: 10
+    toc-location: left
+    number-sections: false
+    html-math-method: katex
+    code-fold: true
+    code-summary: "Show the code"
+    code-overflow: wrap
+    code-copy: hover
+    code-tools:
+        source: false
+        toggle: true
+        caption: See code
+project:
+  type: website
+  output-dir: docs
+execute: 
+  warning: false
+---
+
+## Introduction
+
+This report uses machine learning to predict whether a home was built before 1980 and estimate its exact construction year. Four classification models were tested—Random Forest, Gradient Boosting, Decision Tree, and Gaussian Naive Bayes. Gradient Boosting achieved the highest accuracy at 94% with the best F1 score, making it the most effective. Key predictors included architectural style, number of bathrooms, and garage type.
+
+After merging neighborhood-level features into the dataset, Gradient Boosting maintained its strong performance, showing its adaptability. For regression, it also outperformed other models with an $R^2$ of 0.87 and a mean absolute error of 7.4 years. This confirms its reliability for estimating home age.
+
+This project highlights practical skills in data preparation, model tuning, and performance evaluation, with results showing Gradient Boosting as the top choice for both classification and regression tasks in housing data.
+
+## Load Packages and Data
+
+```{python}
+import pandas as pd 
+import numpy as np
+from lets_plot import *
+
+from sklearn.model_selection import train_test_split
+from sklearn.naive_bayes import GaussianNB
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.ensemble import RandomForestRegressor
+from sklearn import metrics
+from sklearn.metrics import *
+
+LetsPlot.setup_html(isolated_frame=True)
+```
+
+```{python}
+# Load dataset
+dwellings = pd.read_csv('https://github.com/byuidatascience/data4dwellings/raw/master/data-raw/dwellings_ml/dwellings_ml.csv')
+```
+
+## Data Preparation
+
+```{python}
+# Select predictors and outcome variable
+x = dwellings[[
+  'arcstyle_ONE-STORY', 'numbaths', 'livearea', 'stories',
+  'gartype_Att', 'quality_C', 'netprice', 'basement',
+  'sprice', 'abstrprd', 'tasp', 'gartype_Det',
+  'condition_AVG', 'nocars', 'quality_B'
+]]
+
+x2 = dwellings[[
+    'arcstyle_ONE-STORY',
+    'gartype_Att',
+    'quality_C',
+    'stories',
+    'numbaths',
+    'condition_AVG',
+    'abstrprd',
+    'basement',
+    'livearea',
+    'numbdrm',
+    'status_I',
+    'arcstyle_ONE AND HALF-STORY',
+    'status_V',
+    'tasp',
+    'nocars'
+]]
+
+x3 = dwellings[[
+    'numbaths',
+    'condition_Good',
+    'stories',
+    'quality_C',
+    'gartype_Det',
+    'livearea',
+    'numbdrm',
+    'gartype_None',
+    'basement',
+    'netprice',
+    'sprice',
+    'nocars',
+    'finbsmnt',
+    'arcstyle_TWO-STORY',
+    'quality_D'
+]]
+y = dwellings['before1980']
+```
+
+```{python}
+# Split dataset into training and testing sets
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.25, random_state=70)
+
+x2_train, x2_test, y2_train, y2_test = train_test_split(x2, y, test_size=0.25, random_state=70)
+
+x3_train, x3_test, y3_train, y3_test = train_test_split(x3, y, test_size=0.25, random_state=70)
+```
+
+## Model Trainings:
+
+```{python}
+# Train Random Forest Classifier
+classifier_DT = RandomForestClassifier(
+    n_estimators=175,
+    max_depth=15,
+    min_samples_split=5,
+    min_samples_leaf=2,
+    max_features='sqrt',
+    random_state=70
+)
+classifier_DT.fit(x_train, y_train)
+
+# Train Gradient Boosting Classifier
+classifier_DT2 = GradientBoostingClassifier(random_state=70,
+ learning_rate=0.05,  
+  max_depth=12,       # Sweet spot, don't change 
+  n_estimators=175, subsample=0.8)
+classifier_DT2.fit(x2_train, y2_train)
+
+# Train Decision Tree Classifier
+classifier_DT3 = DecisionTreeClassifier(
+    max_depth=15,         # limits tree depth to prevent overfitting
+    min_samples_split=20,   # must have 20 samples to split a node
+    min_samples_leaf=10,    # each leaf must have at least 10 samples
+    max_features='sqrt',    # use sqrt(n_features) at each split
+    random_state=70
+)
+classifier_DT3.fit(x3_train, y3_train)
+
+# Train Gaussian NB Classifier
+classifier_DT4 = GaussianNB()
+classifier_DT4.fit(x_train, y_train)
+```
+
+## Feature Importances
+```{python}
+# Extract feature importances - Random Forest
+importances = classifier_DT.feature_importances_
+feature_names = x_train.columns
+feat_imp_df = pd.DataFrame({
+    'Feature': feature_names,
+    'Importance': importances
+}).sort_values(by='Importance', ascending=False)
+
+# Extract feature importances - Gradient Boosting
+importances2 = classifier_DT2.feature_importances_
+feature_names2 = x2_train.columns
+feat_imp_df2 = pd.DataFrame({
+    'Feature': feature_names2,
+    'Importance': importances2
+}).sort_values(by='Importance', ascending=False)
+
+# Extract feature importances - Decision Tree
+importances3 = classifier_DT3.feature_importances_
+feature_names3 = x3_train.columns
+feat_imp_df3 = pd.DataFrame({
+    'Feature': feature_names3,
+    'Importance': importances3
+}).sort_values(by='Importance', ascending=False)
+```
+
+Below, I will displays the top 7 features for each model, to examine the uniqueness of each model.
+
+**Random Forest:**
+The top 7 important features of the Random Forest model are well within the same range, namely: 6% - 12%. Arcstyle One-story tops it off, with stories close behind in second. An interesting one to note is the number of baths was 5th on importance with 8% importance. 
+
+```{python}
+
+ggplot(feat_imp_df.head(7), aes(x='Feature', y='Importance', fill='Feature')) + \
+    geom_bar(stat='identity', color='black', size=0.4) + \
+    ggtitle('Feature Importance - Random Forest') + \
+    xlab('Feature') + \
+    ylab('Importance') + \
+    theme_minimal() + \
+    theme(
+        axis_text_x=element_text(angle=45, hjust=1, size=10),
+        axis_text_y=element_text(size=12),
+        plot_title=element_text(size=16, face='bold', hjust=0.5),
+        legend_position='none'
+    )
+```
+
+**Gradient Boosting:**
+The top 7 important features of the Gradient Boosting model are a little more spread out: Arctyle-One-story tops it off as well interestingly at a whopping 23.7%! The remaining 6 features fall within the range 3% and 15%. Stories only had a 3% importance in this model compared to 11% in the Random Forest model.
+
+```{python}
+
+ggplot(feat_imp_df2.head(7), aes(x='Feature', y='Importance', fill='Feature')) + \
+    geom_bar(stat='identity', color='black', size=0.4) + \
+    ggtitle('Feature Importance - Gradient Boosting') + \
+    xlab('Feature') + \
+    ylab('Importance') + \
+    theme_minimal() + \
+    theme(
+        axis_text_x=element_text(angle=45, hjust=1, size=10),
+        axis_text_y=element_text(size=12),
+        plot_title=element_text(size=16, face='bold', hjust=0.5),
+        legend_position='none'
+    )
+```
+
+**Decision Tree:**
+The top 7 important features of the Decision Tree model are heavily weighted in two features: Quality Type C (21%) and Living Area (20%). Interesting, Arcstyle-One-Story does not make this top 7 list but Arctyle Two-Story does.
+
+```{python}
+ggplot(feat_imp_df3.head(7), aes(x='Feature', y='Importance', fill='Feature')) + \
+    geom_bar(stat='identity', color='black', size=0.4) + \
+    ggtitle('Feature Importance - Decision Tree') + \
+    xlab('Feature') + \
+    ylab('Importance') + \
+    theme_minimal() + \
+    theme(
+        axis_text_x=element_text(angle=45, hjust=1, size=10),
+        axis_text_y=element_text(size=12),
+        plot_title=element_text(size=16, face='bold', hjust=0.5),
+        legend_position='none'
+    )
+```
+
+One thing to note based on the top 7 features of each model is, Decision tree is heavily weighted towards 2 categories, possibly over-fitting them. Gradient Boosting model have one major category, but not as skewed as Decision Tree. Random Forest seems to find a multilayered relationship as each category is tighter together in importance. So far I am leaning towards Random Forest Model.
+
+## Model Accuracies and Performance's
+
+Below, I will display the accuracies, recall, precision, and f1 scores for each model.
+
+**Random Forest:**
+```{python}
+y_pred = classifier_DT.predict(x_test)
+print("Accuracy:", accuracy_score(y_test, y_pred))
+print(classification_report(y_test, y_pred))
+```
+
+RF (Random Forest) has an accuracy of 91.5%, with each precision and recall score between 88% and 93%. 
+
+**Gradient Boosting:**
+```{python}
+y_pred2 = classifier_DT2.predict(x2_test)
+print("Gradient Boosting:")
+print("Accuracy:", accuracy_score(y2_test, y_pred2))
+print(classification_report(y2_test, y_pred2))
+```
+
+GB (Gradient Boosting) has an accuracy of 93.6%, with each precision and recall score between 91% and 95%.
+
+**Decision Tree:**
+```{python}
+y_pred3 = classifier_DT3.predict(x3_test)
+print("Decision Tree:")
+print("Accuracy:", accuracy_score(y3_test, y_pred3))
+print(classification_report(y3_test, y_pred3))
+```
+
+DT (Decision Tree) has an accuracy score of 88%, with each precision and recall score between 84% and 90%.
+
+**Gaussian NB:**
+```{python}
+y_pred4 = classifier_DT4.predict(x_test)
+print("Gaussian NB:")
+print("Accuracy:", accuracy_score(y_test, y_pred4))
+print(classification_report(y_test, y_pred4))
+```
+
+Gaussian NB seems to be horribly accurate with a score of 66%.
+
+Based on these scores, Gradient Boosting seems to also be the most accurate, even when accounting for false positives and false negatives. Its weighted f1 score of 94% bested RF's 92%. Given our context of predicted whether a home was built 1980 and before and the concern with asbestos, I was particularly more curious about the recall scores of these two classifiers. GB still bests RF's in each Recall score but about 3%.
+
+## New Data?
+
+In order to determine which model is best, let's add new data to our set and see if the models scores change. I will choose to only analyze the Random Forest and Gradient Boosting classifiers as they were the top ones in my previous tests, with the closest scores.
+
+```{python}
+dwellings_neighborhoods = pd.read_csv('https://github.com/byuidatascience/data4dwellings/raw/master/data-raw/dwellings_neighborhoods_ml/dwellings_neighborhoods_ml.csv')
+```
+
+```{python}
+new_data = pd.merge(dwellings, dwellings_neighborhoods, on='parcel', how="inner")
+```
+```{python}
+# Select predictors and outcome variable
+x = new_data.drop(['before1980', 'parcel', 'yrbuilt'], axis=1)
+y = new_data['before1980']
+
+# Split dataset into training and testing sets
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.25, random_state=70)
+
+classifier_DTBEST = RandomForestClassifier(
+    n_estimators=175,
+    max_depth=15,
+    min_samples_split=5,
+    min_samples_leaf=2,
+    max_features='sqrt',
+    class_weight='balanced',
+    random_state=70
+)
+classifier_DTBEST.fit(x_train, y_train)
+
+classifier_DTBEST2 = GradientBoostingClassifier(random_state=70,
+ learning_rate=0.05,  
+  max_depth=12,       # Sweet spot, don't change 
+  n_estimators=175, subsample=0.8)
+classifier_DTBEST2.fit(x_train, y_train)
+```
+
+**Random Forest New Stats:**
+```{python}
+y_pred = classifier_DTBEST.predict(x_test)
+print("Random Forest:")
+print("Accuracy:", accuracy_score(y_test, y_pred))
+print(classification_report(y_test, y_pred))
+```
+
+**Gradient Boosting New Stats:**
+```{python}
+y_pred2 = classifier_DTBEST2.predict(x_test)
+print("Gradient Boosting:")
+print("Accuracy:", accuracy_score(y_test, y_pred2))
+print(classification_report(y_test, y_pred2))
+```
+
+Based on the new data, Gradient Boosting took a major leap forward in all categories by 2-3%! My recommendation of using a Gradient Boosting Classifier stands, especially with this new merged dataset.
+
+## Regressors
+\
+One last thing to end the report, I will not look to not only predict before 1980 or not, but to predict the the actual year the house was built. I will look at only two models, Gradient Boosting Regressor and Random Forest Regressor. 
+
+```{python}
+x = new_data.drop(['before1980', 'parcel', 'yrbuilt'], axis=1)
+y = new_data['yrbuilt']
+
+# Split dataset into training and testing sets
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.25, random_state=70)
+
+regressor_RF = RandomForestRegressor(
+    n_estimators=175,
+    max_depth=15,
+    min_samples_split=5,
+    min_samples_leaf=2,
+    max_features='sqrt',
+    random_state=70
+)
+regressor_RF.fit(x_train, y_train)
+
+regressor_GB = GradientBoostingRegressor(random_state=70,
+ learning_rate=0.05,  
+  max_depth=12,       # Sweet spot, don't change 
+  n_estimators=175, subsample=0.8)
+regressor_GB.fit(x_train, y_train)
+```
+
+**Random Forest Regressor Stats:**
+```{python}
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+
+y_pred = regressor_RF.predict(x_test)
+print("Random Forest Regressor:")
+print("MAE:", mean_absolute_error(y_test, y_pred))
+print("MSE:", mean_squared_error(y_test, y_pred))
+print("R² Score:", r2_score(y_test, y_pred))
+```
+
+**Gradient Boosting Regressor Stats:**
+```{python}
+y_pred = regressor_GB.predict(x_test)
+print("Gradient Boosting Regressor:")
+print("MAE:", mean_absolute_error(y_test, y_pred))
+print("MSE:", mean_squared_error(y_test, y_pred))
+print("R² Score:", r2_score(y_test, y_pred))
+```
+
+Based on the regression metrics, **Gradient Boosting clearly outperforms** Random Forest in predicting the exact year a home was built. Gradient Boosting achieved an $R^2$ score of 0.87, indicating that it explains approximately 87% of the variance in construction year, compared to 76% with Random Forest. Additionally, it produced a much lower Mean Absolute Error (MAE) of 7.4 years versus 12.8 years for Random Forest. This means on average, Gradient Boosting’s predictions are over 5 years closer to the true year. These results confirm that Gradient Boosting is the better regressor for this task, providing more accurate and reliable predictions for clients interested in estimating home age.
