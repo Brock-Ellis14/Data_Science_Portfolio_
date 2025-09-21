@@ -1,6 +1,5 @@
 ---
-title: "Client Report - Star Wars for Dummies"
-subtitle: "Unit 5 Task 3"
+title: "Star Wars for Dummies"
 author: "Brock"
 format:
   html:
@@ -45,10 +44,21 @@ from sklearn.metrics import *
 LetsPlot.setup_html(isolated_frame=True)
 ```
 
+## Introduction
+
+The goal of this analysis is to determine whether *Star Wars*-related survey responses could be used to predict whether a person earns more than \$50,000 annually. Using a dataset from FiveThirtyEight, I cleaned and preprocessed the data to make it suitable for machine learning. This included transforming categorical `age` and `income` ranges into numeric values, encoding `educ` levels, and scoring *Star Wars* character favorability rankings numerically. I then prepared the data for modeling by one-hot encoding all remaining categorical variables and handling missing values appropriately.
+
+## Problem Definition
+
+Can *Star Wars*-related survey responses could be used to predict whether a person earns more than \$50,000 annually? The target will be 'income', binary (0 = <$50k, 1 = ≥$50k)
+
+## Data Loading & Cleaning
+
 
 ```{python}
 LetsPlot.setup_html(isolated_frame=True) 
 
+# First 2 rows are column headers, created a map to make it easy to read
 new_col_names = ["id", "seen_any", "fan_starwars", 
 "seen_Ep_I", "seen_Ep_II", "seen_Ep_III", "seen_Ep_IV", "seen_Ep_V", "seen_Ep_VI", 
 "rank_Ep_I", "rank_Ep_II", "rank_Ep_III", "rank_Ep_IV", "rank_Ep_V", "rank_Ep_VI", 
@@ -59,13 +69,9 @@ df = pd.read_csv("https://github.com/fivethirtyeight/data/raw/master/star-wars-s
 
 ```
 
-## Introduction
-
-The goal of this analysis was to determine whether *Star Wars*-related survey responses could be used to predict whether a person earns more than \$50,000 annually. Using a dataset from FiveThirtyEight, I cleaned and preprocessed the data to make it suitable for machine learning. This included transforming categorical `age` and `income` ranges into numeric values, encoding `educ` levels, and scoring *Star Wars* character favorability rankings numerically. I then prepared the data for modeling by one-hot encoding all remaining categorical variables and handling missing values appropriately.
-
-
+First, I looked at the columns and their datatypes. 
 ```{python}
-# Recode age to midpoints or random
+# Recode age to midpoints or random beac
 age_map = {
     '18-29': 23,
     '30-44': 37,
@@ -78,10 +84,12 @@ mask = df['age'] == '> 60'
 # Replace categories
 df['age'] = df['age'].replace(age_map)
 
-df.loc[mask, 'age'] = np.random.randint(60, 81, size=mask.sum())
+
+df.loc[mask, 'age'] = np.random.randint(60, 72, size=mask.sum())
 ```
 
 ```{python}
+# 
 df['educ'] = df['educ'].astype('category')
 df['educ'] = pd.factorize(df['educ'])[0]
 df['educ'] = df['educ'].astype('category')
@@ -137,6 +145,9 @@ sw = sw[sw.isna().sum(axis=1) <= 7]
 # Drop rows with nan in outcome variable
 sw = sw.dropna(subset=['income'])
 
+# drop ID column
+sw = sw.drop('id', axis=1)
+
 ```
 
 ## Data Preprocessing Recap
@@ -152,6 +163,15 @@ $$
 $$
 
 Favorability ratings for characters (columns prefixed with `fav_`) were mapped to a numerical scale from $-2$ (very unfavorable) to $+2$ (very favorable). I excluded high-cardinality columns from one-hot encoding (`fav_`, `income`, `educ`, and `age`), then encoded the remaining categorical variables using `pd.get_dummies()` with `dummy_na=True`. I then dropped rows with 7 or more missing values or any missing values in the target variable.
+
+## ADT Report
+
+```{python}
+display(f"{len(df1)} Observations")
+display(f"Percent of Observations Missing")
+display((df1.isna().sum() / len(df1) * 100).sort_values(ascending=False))
+display(df1.dtypes)
+```
 
 ## Machine Learning Model Introduction
 
