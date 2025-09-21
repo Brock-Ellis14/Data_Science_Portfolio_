@@ -19,10 +19,10 @@ header {
 }
 
 nav {
-    height: 2.25em;
+    height: 2.em;
   display: flex;  
-  font-size: 1.5em;        /* lays out links side by side */
-  gap: 1.25em;              /* spacing between boxes */
+  font-size: 1.25em;        /* lays out links side by side */
+  gap: 1em;              /* spacing between boxes */
   justify-content: center; /* centers them in the nav */
 }
 
@@ -45,7 +45,7 @@ nav a:hover {
 
 /* Main Content */
 main {
-  max-width: 75em;
+  max-width: 50em;
   margin: 50px auto;
   padding: 25px;
   background: #fff;
@@ -55,20 +55,20 @@ main {
 }
 
 h1 {
-  font-size: 2em;
+  font-size: 1.75em;
   color: #1e2a38;
   margin-bottom: 20px;s
 }
 
 img {;
-    height: 50em;
-    width: 38em;
+    height: 30em;
+    width: 20em;
   border-radius: 8px;
   margin-bottom: 20px;
 }
 
 p {
-  font-size: 1.33em;
+  font-size: 1.25em;
   color: #555;
 }
 
