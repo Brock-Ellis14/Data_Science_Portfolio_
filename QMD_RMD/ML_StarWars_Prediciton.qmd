@@ -38,6 +38,7 @@ from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn import metrics
 from sklearn.metrics import *
 
@@ -46,17 +47,11 @@ LetsPlot.setup_html(isolated_frame=True)
 
 ## Introduction
 
-The goal of this analysis is to determine whether *Star Wars*-related survey responses could be used to predict whether a person earns more than \$50,000 annually. Using a dataset from FiveThirtyEight, I cleaned and preprocessed the data to make it suitable for machine learning. This included transforming categorical `age` and `income` ranges into numeric values, encoding `educ` levels, and scoring *Star Wars* character favorability rankings numerically. I then prepared the data for modeling by one-hot encoding all remaining categorical variables and handling missing values appropriately.
+Can *Star Wars*-related survey responses be used to predict whether a person earns more than **$50,000** annually??
 
-## Problem Definition
-
-Can *Star Wars*-related survey responses could be used to predict whether a person earns more than \$50,000 annually? The target will be 'income', binary (0 = <$50k, 1 = ≥$50k)
-
-## Data Loading & Cleaning
-
+## Data Loading & Missing Value Analysis
 
 ```{python}
-LetsPlot.setup_html(isolated_frame=True) 
 
 # First 2 rows are column headers, created a map to make it easy to read
 new_col_names = ["id", "seen_any", "fan_starwars", 
@@ -67,33 +62,65 @@ new_col_names = ["id", "seen_any", "fan_starwars",
 
 df = pd.read_csv("https://github.com/fivethirtyeight/data/raw/master/star-wars-survey/StarWars.csv", encoding_errors="ignore", names = new_col_names, skiprows = 2) 
 
+display(df.head())
 ```
 
-First, I looked at the columns and their datatypes. 
-```{python}
-# Recode age to midpoints or random beac
-age_map = {
-    '18-29': 23,
-    '30-44': 37,
-    '45-60': 52.5
-}
-np.random.seed(42)  # reproducibility
-mask = df['age'] == '> 60'
+The original Star Wars survey dataset from `FiveThirtyEight` had two header rows and inconsistent column names. To make the data more usable, I recreated the column names to be more user-friendly.
+
+Example: instead of long survey text like “Which of the following characters is your favorite? - Han Solo”, I renamed it to simply fav_han.
+
+I also skipped the first two rows to avoid duplicated headers and formatting artifacts.
+
+Now the dataset loads cleanly into a DataFrame with 38 columns covering Star Wars movie viewership, rankings, favorite characters, and demographic information (gender, age, income, education, region).
 
 
-# Replace categories
-df['age'] = df['age'].replace(age_map)
+From here, I’ll inspect the structure, data types, and missing values to prompt the direction of this project.
 
-
-df.loc[mask, 'age'] = np.random.randint(60, 72, size=mask.sum())
-```
 
 ```{python}
-# 
-df['educ'] = df['educ'].astype('category')
-df['educ'] = pd.factorize(df['educ'])[0]
-df['educ'] = df['educ'].astype('category')
+datatypes = df.dtypes
+# Percent missing values
+missing = (df.isna().sum() / len(df) * 100).round(1)
+display(f"Top 10 Missing Values Percentages of Columns")
+display(missing.sort_values(ascending=False).head(10))  # Show top 10
 ```
+
+**Missing Value Analysis**
+
+The columns with the highest percentage of missing values reveal clear patterns in survey behavior:
+
+Expanded Universe fandom (fan_expanded_universe) is missing in 82% of responses. This suggests most participants were either unfamiliar with or chose not to answer questions about the broader Star Wars canon.
+
+Movie viewing history (seen_Ep_I through seen_Ep_VI) shows between 36–54% missingness. This likely reflects that many respondents did not watch certain films and skipped those questions.
+
+Favorite character fields such as fav_boba, fav_palpatine, and fav_padme each have around 31% missingness, consistent with respondents who had not seen the films and therefore did not select a favorite.
+
+These missing values are not random (NMAR) but tied to the survey’s logic. Respondents who had not seen the movies were more likely to leave rankings and character preferences blank.
+
+Because the missing values reflect survey behavior rather than data entry errors, they will need to be handled thoughtfully (e.g., recoding to “Not seen” or “No favorite”). However, before diving into a full cleaning process, it is important to first explore the structure of the variables themselves.
+
+The next step will be to examine the nature of the target variable and key predictors in order to determine which model(s) will be best suited for this project.
+
+## Exploratory Data Analysis
+
+```{python}
+# Grab value counts and Get proportion of column it represents
+income_counts = df['income'].value_counts(dropna=False)
+income_props = df['income'].value_counts(normalize=True, dropna=False).round(2)
+
+# Display the counts and proportions as a table
+display(pd.DataFrame({'Count': income_counts, 'Proportion': income_props}))
+```
+
+The raw income variable contains six categories plus a substantial amount of missing data.
+This distribution shows two important points:
+
+The variable, income, is categorical, not continuous — respondents selected income brackets, not exact dollar values.
+The distribution is fairly even, with the 50k-100k group the most common and 0-25k least common.
+
+Therefore, I will encode the variables as 0, for <=50k, and 1, for >50k
+
+This binning aligns with the project goal: predicting whether someone earns more than $50k annually. That decision makes logistic regression the appropriate baseline model, rather than linear regression.
 
 ```{python}
 # Convert Income ranges to values 0 for less than 50k
@@ -104,12 +131,27 @@ income_map = {
     '$100,000 - $149,999': 1,
     '$150,000+': 1
 }
-
 # Replace
 df.loc[:,'income'] = df.loc[:,'income'].replace(income_map)
+
+# Grab value counts and Get proportion of column it represents
+income_counts = df['income'].value_counts(dropna=False)
+income_props = df['income'].value_counts(normalize=True, dropna=False).round(2)
+
+# Display the counts and proportions as a table
+display(pd.DataFrame({'Count': income_counts, 'Proportion': income_props}))
 ```
 
+The new binning, makes the income variable fairly balanced, weighting towards over 50k having more representation as to <=50k.
+
+I will now move on converting string-ordinal columns, to numeric-ordinal column for the purpose of visualizing, finding correlations, and preparing for modeling.
+
 ```{python}
+# Convert age to numeric, picking the median of each, 66 for >60 because 72 is average life expectancy
+age_map = {'18-29': 23, '30-44': 37, '45-60': 52.5, '> 60': 66}
+# Replace
+df['age'] = df['age'].map(age_map)
+
 # Convert fav_ columns to number rank
 fav_map = {
   'Very favorably': 2,
@@ -119,12 +161,148 @@ fav_map = {
   'Somewhat unfavorably': -1,
   'Very unfavorably': -2
 }
-
 # Replace
 df.iloc[:, list(range(15,29))] = df.iloc[:, list(range(15,29))].replace(fav_map)
 ```
 
 ```{python}
+# Select favorability columns by name pattern and change dtype for correlation later
+fav_cols = [col for col in df.columns if 'fav_' in col]
+df[fav_cols] = df[fav_cols].astype('float64')
+rank_cols = [col for col in df.columns if 'rank_' in col]
+df[rank_cols] = df[rank_cols].astype('Int64')
+
+```
+
+```{python}
+# Select all numeric columns
+numeric_cols = [col for col in df.columns if df[col].dtype in ['int64', 'int8', 'Int64', 'Int8', 'float64']]
+
+# Calculate correlations with income
+correlations = df[numeric_cols + ['income']].corrwith(df['income'])
+correlations = correlations.drop('income').sort_values(key=abs, ascending=False)
+
+print("Top 5 correlations with income (>$50k):")
+display((correlations.head(5)))
+print("\nBottom 5 correlations:")
+display(correlations.tail(5))
+
+df['income'] = df['income'].astype('bool')
+```
+
+From the aforementioned correlations, we can see certain characters, and movies that have a small correlation around 10% with income. 
+
+Age, had somewhat to do as most would have guessed, with a 12% correlation with income.
+
+The main standout from this, is no one variable is worth exploring as being a predictor of income by itself, but rather an interaction of multiple variables.
+
+
+In the coming graphs, I am looking for different distributions, which will tell me there is a meaningful relationship between 2 variables on income.
+
+
+```{python}
+(
+    ggplot(df, aes(x="fan_startrek", fill="fan_starwars")) +
+    geom_bar(position="dodge") +
+    facet_wrap("income") +
+    labs(
+        title="Star Wars vs Star Trek Fandom by Income",
+        x="Star Trek Fan", y="Count", fill="Star Wars Fan"
+    )
+)
+```
+
+```{python}
+(
+    ggplot(df, aes('rank_Ep_II')) +
+    geom_bar() +  
+    facet_wrap(facets='income') +
+    labs(
+        title="Proportion of Star Trek Fans Across Income Levels",
+        x="Age", y="Count"
+    )
+)
+
+```
+
+
+```{python}
+top_regions = df['region'].value_counts().nlargest(6).index
+df2 = df
+df2['region_plot'] = np.where(df2['region'].isin(top_regions), df2['region'], 'Other')
+
+(
+    ggplot(df2, aes(x="region_plot")) +
+    geom_bar() +
+    coord_flip() +
+    facet_grid(y='income', x='gender') +
+    labs(title="Region Distribution by Income and Gender", x="Region", y="Income")
+)
+
+```
+
+
+```{python}
+display(ggplot(df, aes("seen_any", fill='fan_startrek')) +\
+  geom_bar() +\
+  facet_wrap("income"))
+```
+
+
+
+
+```{python}
+display(ggplot(df, aes("region")) +\
+  geom_bar() +\
+  coord_cartesian(ylim=(0,50)) +\
+  facet_wrap(facets=["income", "age"]))
+```
+
+```{python}
+(
+    ggplot(df.dropna(subset=['age']), aes(x="income", y="age")) +
+    geom_boxplot() +
+    coord_cartesian(ylim=(15, 100)) +
+    labs(title="Age by Income Bracket", x="Income", y="Age")
+)
+```
+
+```{python}
+(
+    ggplot(df, aes(x="educ", fill="income")) +
+    geom_bar(position="fill") +
+    coord_flip() +
+    labs(
+        title="Education and Income (Proportions)",
+        x="Education Level", y="Proportion", fill="Income"
+    )
+)
+
+```
+
+
+
+As I explored multi layered relationships, a few interesting things occured: 
+
+The interaction between gender, and education show differing distributions, perhaps uncovering a good predictor of income. 
+
+The interactions between age and education also added to a differing distribution. 
+
+All in all, the distributions are more similar than different across almost all interactions explored.
+
+Therefore, I will entertain multiple tree models, including Random Forest, K-Nearest Neighbors, Gradient Boosting, Decision Tree, and NB booster. This project is limited by my knowledge, which only includes these ML algorithms as of today. 
+
+
+## Model Prep
+
+
+```{python}
+# factorize into 1s 0s education column
+df['educ'] = df['educ'].astype('category')
+df['educ'] = pd.factorize(df['educ'])[0]
+df['educ'] = df['educ'].astype('category')
+
+# Drop ID column
 df1 = df.drop(df.columns[0], axis=1)
 
 # Separate columns to exclude from one-hot encoding
@@ -150,7 +328,6 @@ sw = sw.drop('id', axis=1)
 
 ```
 
-## Data Preprocessing Recap
 
 To begin, I transformed `age` into numeric midpoints and randomly assigned values between 60 and 80 for respondents who reported `> 60`. The `income` variable was recoded into a binary classification target, where:
 
@@ -164,13 +341,11 @@ $$
 
 Favorability ratings for characters (columns prefixed with `fav_`) were mapped to a numerical scale from $-2$ (very unfavorable) to $+2$ (very favorable). I excluded high-cardinality columns from one-hot encoding (`fav_`, `income`, `educ`, and `age`), then encoded the remaining categorical variables using `pd.get_dummies()` with `dummy_na=True`. I then dropped rows with 7 or more missing values or any missing values in the target variable.
 
-## ADT Report
 
 ```{python}
 display(f"{len(df1)} Observations")
 display(f"Percent of Observations Missing")
 display((df1.isna().sum() / len(df1) * 100).sort_values(ascending=False))
-display(df1.dtypes)
 ```
 
 ## Machine Learning Model Introduction
@@ -195,6 +370,7 @@ y = sw['income'].astype(int)
 
 ```{python}
 # Split dataset into training and testing sets
+
 x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.25, random_state=50)
 
 # Split and fill na's for gradient/Gassian
@@ -206,7 +382,8 @@ x_test_na = x_test.fillna(0)
 # Train Random Forest Classifier
 classifier_DT = RandomForestClassifier(
     random_state=70,
-    max_depth=9
+    max_depth=9,
+    class_weight='balanced'
 
 )
 classifier_DT.fit(x_train, y_train)
@@ -230,6 +407,13 @@ classifier_DT3.fit(x_train, y_train)
 # Train Gaussian NB Classifier
 classifier_DT4 = GaussianNB()
 classifier_DT4.fit(x_train_na, y_train)
+
+# KN
+classifier_DT5 = KNeighborsClassifier(n_neighbors=11,
+    weights='uniform', 
+    p=2                  # Power parameter (1=Manhattan, 2=Euclidean)
+)
+classifier_DT5.fit(x_train_na, y_train)
 ```
 
 ```{python}
@@ -242,6 +426,8 @@ y_pred2 = classifier_DT2.predict(x_test_na)
 print("Gradient Boosting:")
 print("Accuracy:", accuracy_score(y_test, y_pred2))
 print(classification_report(y_test, y_pred2))
+```
+```{python}
 
 y_pred3 = classifier_DT3.predict(x_test)
 print("Decision Tree:")
@@ -253,6 +439,11 @@ y_pred4 = classifier_DT4.predict(x_test_na)
 print("Gaussian NB:")
 print("Accuracy:", accuracy_score(y_test, y_pred4))
 print(classification_report(y_test, y_pred4))
+
+y_pred5 = classifier_DT5.predict(x_test_na)
+print("K-Neighbors:")
+print("Accuracy:", accuracy_score(y_test, y_pred5))
+print(classification_report(y_test, y_pred5))
 ```
 
 ```{python}
@@ -276,13 +467,15 @@ ggplot(model_scores, aes(x='Model', y='Accuracy', fill='Model')) + \
 
 ## Model Performance Analysis
 
-**Random Forest** achieved the highest overall accuracy at **69.0%**, with strong recall (**94%**) and F1-score (**0.80**) for predicting individuals earning at least \$50k. However, it performed poorly on the lower-income class with just **22%** recall.
+**Random Forest** achieved the highest overall accuracy at **69.0%**, with strong recall (**91%**) and F1-score (**0.81**) for predicting individuals earning at least \$50k. However, it performed very poorly on the lower-income class with just **22%** f1 and 15% recall.
 
-**Gradient Boosting** followed with an accuracy of **66.7%**. It showed more balanced performance, achieving **83%** recall for the high-income class and **36%** recall for the low-income group. This made it more reliable in identifying both income levels.
+**Gradient Boosting** followed with an accuracy of **67.8%**. It showed identical results to random forest as far as recall, precision, and f1 go. In essence, great at predicting the true cases, and terrible at the untrue cases.
 
-**Decision Tree** yielded a lower accuracy of **62.5%** and weaker class performance, reflecting its simpler structure and lack of boosting or bagging enhancements.
+** Decision Tree classifier follows the same pattern overall as Random Forest and Gradient Boosting Classifiers.
 
-**Gaussian Naive Bayes** reached **64.9%** accuracy but completely failed to classify low-income respondents, with **0%** precision and recall for class 0. It was heavily biased toward predicting class 1 only.
+**Gaussian Naive Bayes** reached **28..8%** accuracy but completely failed to classify high-income respondents, with **1%** precision. It was heavily biased toward predicting class 2 only.
+
+**K-Neighbors, follows a relatively similar pattern, with 67% accuracy and a little more balanced recall and f1 scores. 
 
 ## Conclusion and Recommendation
 
@@ -318,4 +511,6 @@ ggplot(top_features, aes(x='Feature', y='Importance', fill='Feature')) + \
     )
 ```
 
-In the Random Forest model, feature importance was more evenly distributed across a mix of predictors. Interestingly, ID ranked highest,even though it is not a meaningful variable. Among real features, age and educ were most important, which aligns with expected links between demographics and income. Several Star Wars favorability ratings — including fav_jar, fav_darth, fav_anakin, and fav_padme — also contributed meaningfully. This broader distribution of importance suggests the model draws on a variety of demographic and preference-based factors, adding to its overall robustness.
+In the Random Forest model, feature importance was more evenly distributed across a mix of predictors. Among the features, age and educ were most important, which aligns with expected links between demographics and income. Several Star Wars favorability ratings — including fav_jar, fav_darth, fav_anakin, and fav_padme — also contributed meaningfully. This broader distribution of importance suggests the model's draws on a variety of demographic and preference-based factors. 
+
+In conclusion, it seems as if star wars related preferences and education and age, are not very powerful in predicting income being greater than 50k or not.
