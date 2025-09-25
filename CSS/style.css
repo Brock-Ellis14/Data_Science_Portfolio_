@@ -19,10 +19,10 @@ header {
 }
 
 nav {
-    height: 1.5em;
+    height: 3.5em;
   display: flex;  
-  font-size: 1.25em;        /* lays out links side by side */
-  gap: .6em;              /* spacing between boxes */
+  font-size: 1em;        /* lays out links side by side */
+  gap: .5em;              /* spacing between boxes */
   justify-content: center; /* centers them in the nav */
 }
 
