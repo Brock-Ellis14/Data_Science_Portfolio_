@@ -1,5 +1,5 @@
 ---
-title: "Star Wars for Dummies"
+title: "Star Wars Predictive Analytics"
 author: "Brock"
 format:
   html:
@@ -60,44 +60,69 @@ new_col_names = ["id", "seen_any", "fan_starwars",
 "fav_han", "fav_luke", "fav_leia", "fav_anakin", "fav_obi", "fav_palpatine", "fav_darth", "fav_lando", "fav_boba", "fav_c3po", "fav_r2", "fav_jar", "fav_padme", "fav_yoda", 
 "who_shot_first", "familiar_expanded_universe", "fan_expanded_universe", "fan_startrek", "gender", "age", "income", "educ", "region"] 
 
-df = pd.read_csv("https://github.com/fivethirtyeight/data/raw/master/star-wars-survey/StarWars.csv", encoding_errors="ignore", names = new_col_names, skiprows = 2) 
+# Read in the data  to a pandas data-frame from CSV github
+df = pd.read_csv("https://github.com/fivethirtyeight/data/raw/master/star-wars-survey/StarWars.csv", encoding_errors="ignore", names = new_col_names, skiprows = 2)
 
+# Replace common missing indicators with np.nan
+df = df.replace(['NA', 'N/A', 'na', 'n/a', '', 'NaN', 'nan', 999, -99, None], np.nan)
+
+# Display a glimpse of the data
 display(df.head())
 ```
 
-The original Star Wars survey dataset from `FiveThirtyEight` had two header rows and inconsistent column names. To make the data more usable, I recreated the column names to be more user-friendly.
-
-Example: instead of long survey text like “Which of the following characters is your favorite? - Han Solo”, I renamed it to simply fav_han.
-
-I also skipped the first two rows to avoid duplicated headers and formatting artifacts.
-
-Now the dataset loads cleanly into a DataFrame with 38 columns covering Star Wars movie viewership, rankings, favorite characters, and demographic information (gender, age, income, education, region).
+The dataset now loads cleanly into a DataFrame with 38 columns covering Star Wars movie viewership, rankings, favorite characters, and demographic information (gender, age, income, education, region).
 
 
 From here, I’ll inspect the structure, data types, and missing values to prompt the direction of this project.
 
 
+**Missing Value Analysis**
+
+The columns with the highest percentage of missing values reveal clear patterns in survey behavior:
 ```{python}
+# Get data types for internal use
 datatypes = df.dtypes
-# Percent missing values
+
+# Percent missing values of each column
 missing = (df.isna().sum() / len(df) * 100).round(1)
 display(f"Top 10 Missing Values Percentages of Columns")
 display(missing.sort_values(ascending=False).head(10))  # Show top 10
 ```
 
-**Missing Value Analysis**
+Because of the extreme problems of missing values in columns, I will now filter on respondents who have at least seen one movie. I will also drop the fan_expanded_universe column as no insights can come from a column of mostly missing values.
 
-The columns with the highest percentage of missing values reveal clear patterns in survey behavior:
+```{python}
+# Filtered to only include those who have inputted a movie they have seen, don't use seen_any column as many of those who answered 'yes', also left all of those blank when listing the movies they have seen
+df = df.dropna(subset=df.columns[2:8], how='all')
 
-Expanded Universe fandom (fan_expanded_universe) is missing in 82% of responses. This suggests most participants were either unfamiliar with or chose not to answer questions about the broader Star Wars canon.
+# Remove all rows where income (target variable) is NA
+df = df.dropna(subset=['income'])
 
-Movie viewing history (seen_Ep_I through seen_Ep_VI) shows between 36–54% missingness. This likely reflects that many respondents did not watch certain films and skipped those questions.
+# Drop fan_expanded_universe column
+df = df.drop(['fan_expanded_universe'], axis=1)
 
-Favorite character fields such as fav_boba, fav_palpatine, and fav_padme each have around 31% missingness, consistent with respondents who had not seen the films and therefore did not select a favorite.
+# Select columns 3–8
+cols = df.columns[2:9]
 
-These missing values are not random (NMAR) but tied to the survey’s logic. Respondents who had not seen the movies were more likely to leave rankings and character preferences blank.
+# Replace NaN with "no", everything else with "yes"
+df[cols] = df[cols].applymap(lambda x: 'yes' if pd.notna(x) else 'no')
+```
 
-Because the missing values reflect survey behavior rather than data entry errors, they will need to be handled thoughtfully (e.g., recoding to “Not seen” or “No favorite”). However, before diving into a full cleaning process, it is important to first explore the structure of the variables themselves.
+After the filtering out those who have not seen any star wars movie and those who did not list their income level, the total number of respondents went from 1186, down to 675. This is because it neglects the purpose of the project, which is to use star wars respondents to predict income level. It would not make sense to use peoples responses who have not at least seen one movie nor have listed their income. 
+
+One issue I forsee happening is the data is getting smaller and smaller, but still a a decent size. I essentially cut 57% of the respondents out from the survey.
+
+Columns regarding on if the respondent is a fan, or if they have seen certain movies, also have a lot of NA's. Further investigation reveals they only have one option to choose from, thus I will interpret blank answers as being they have not seen that movie.
+
+```{python}
+# Percent missing values of each column, filtered by those have have seen one movie at least
+missing = (df.isna().sum() / len(df) * 100).round(1)
+display(f"Top 10 Missing Values Percentages of Columns")
+display(missing.sort_values(ascending=False).head(10))  # Show top 10
+```
+
+As you can now see, the data set is a lot cleaner when it comes to missing values.
+
 
 The next step will be to examine the nature of the target variable and key predictors in order to determine which model(s) will be best suited for this project.
 
@@ -110,17 +135,26 @@ income_props = df['income'].value_counts(normalize=True, dropna=False).round(2)
 
 # Display the counts and proportions as a table
 display(pd.DataFrame({'Count': income_counts, 'Proportion': income_props}))
+
+# Order income for graph map
+income_order = ['$0 - $24,999', '$25,000 - $49,999', '$50,000 - $99,999','$100,000 - $149,999','$150,000+']
+
+# Convert to ordered categorical
+df['income'] = pd.Categorical(df['income'], categories=income_order, ordered=True)
+
+display(ggplot(df, aes(x='income')) +\
+    geom_bar(fill="#4C72B0") +\
+    ggtitle("Income Distribution") +\
+    xlab("Income Category") +\
+    ylab("Number of Respondents") +
+    theme(axis_text_x=element_text(angle=30, hjust=1)))
 ```
 
-The raw income variable contains six categories plus a substantial amount of missing data.
-This distribution shows two important points:
+The income variable contains six categories. with the distribution showing two important points:
 
-The variable, income, is categorical, not continuous — respondents selected income brackets, not exact dollar values.
-The distribution is fairly even, with the 50k-100k group the most common and 0-25k least common.
+The 50,000 - 99,999 income level is decently biased, with about 37% of the respondents falling in. The rest of the income levels, range in between 12-23%. The variation of levels is slightly imbalanced, but we should be able to tweak some things depending on the model route I choose.
 
-Therefore, I will encode the variables as 0, for <=50k, and 1, for >50k
-
-This binning aligns with the project goal: predicting whether someone earns more than $50k annually. That decision makes logistic regression the appropriate baseline model, rather than linear regression.
+Since this is in the incorrect format for analysis, I will bin on 50k or more. We end up getting 64% of answers being 50k or more. We still have an imbalanced dataset. 
 
 ```{python}
 # Convert Income ranges to values 0 for less than 50k
@@ -142,8 +176,6 @@ income_props = df['income'].value_counts(normalize=True, dropna=False).round(2)
 display(pd.DataFrame({'Count': income_counts, 'Proportion': income_props}))
 ```
 
-The new binning, makes the income variable fairly balanced, weighting towards over 50k having more representation as to <=50k.
-
 I will now move on converting string-ordinal columns, to numeric-ordinal column for the purpose of visualizing, finding correlations, and preparing for modeling.
 
 ```{python}
@@ -151,6 +183,19 @@ I will now move on converting string-ordinal columns, to numeric-ordinal column 
 age_map = {'18-29': 23, '30-44': 37, '45-60': 52.5, '> 60': 66}
 # Replace
 df['age'] = df['age'].map(age_map)
+
+# Preserve order in fav columns
+fav_order = [
+    'Very unfavorably',
+    'Somewhat unfavorably',
+    'Neither favorably nor unfavorably (neutral)',
+    'Unfamiliar (N/A)',
+    'Somewhat favorably',
+    'Very favorably'
+]
+
+for col in df.columns[15:29]:
+    df[col] = pd.Categorical(df[col], categories=fav_order, ordered=True)
 
 # Convert fav_ columns to number rank
 fav_map = {
@@ -167,12 +212,12 @@ df.iloc[:, list(range(15,29))] = df.iloc[:, list(range(15,29))].replace(fav_map)
 
 ```{python}
 # Select favorability columns by name pattern and change dtype for correlation later
-fav_cols = [col for col in df.columns if 'fav_' in col]
-df[fav_cols] = df[fav_cols].astype('float64')
 rank_cols = [col for col in df.columns if 'rank_' in col]
 df[rank_cols] = df[rank_cols].astype('Int64')
 
 ```
+
+Now, I will show the top correlated variables, strong or negative, with income.
 
 ```{python}
 # Select all numeric columns
@@ -190,39 +235,99 @@ display(correlations.tail(5))
 df['income'] = df['income'].astype('bool')
 ```
 
-From the aforementioned correlations, we can see certain characters, and movies that have a small correlation around 10% with income. 
+From the aforementioned correlations, we can see certain characters such as Luke, Leia, Obi-wan, and Han Solo, have around a 12-15% correlation with income.
 
 Age, had somewhat to do as most would have guessed, with a 12% correlation with income.
 
-The main standout from this, is no one variable is worth exploring as being a predictor of income by itself, but rather an interaction of multiple variables.
+The main standout from this, is no one variable is worth exploring as being a predictor of income by itself, but rather an interaction of multiple variables might be worthy pursuing.
 
 
-In the coming graphs, I am looking for different distributions, which will tell me there is a meaningful relationship between 2 variables on income.
-
+In the coming graphs, I am looking for differences in the distributions between the levels of 2 variables, to assess if their is a multiple relationship between them and income. I will only display typical choices, and ones that are interesting.
 
 ```{python}
 (
-    ggplot(df, aes(x="fan_startrek", fill="fan_starwars")) +
+    ggplot(df, aes(x="age", fill="fav_leia")) +
     geom_bar(position="dodge") +
     facet_wrap("income") +
     labs(
         title="Star Wars vs Star Trek Fandom by Income",
-        x="Star Trek Fan", y="Count", fill="Star Wars Fan"
-    )
+        x="Age", y="Count", fill="Luke Fan? (2= very, 1= Somewhat"
+    ) +
+    theme(legend_position = "none")
+
 )
 ```
 
 ```{python}
 (
-    ggplot(df, aes('rank_Ep_II')) +
-    geom_bar() +  
-    facet_wrap(facets='income') +
+    ggplot(df, aes(x="age", fill="fav_obi")) +
+    geom_bar(position="dodge") +
+    facet_wrap("income") +
     labs(
-        title="Proportion of Star Trek Fans Across Income Levels",
-        x="Age", y="Count"
-    )
+        title="Star Wars vs Star Trek Fandom by Income",
+        x="Age", y="Count", fill="Luke Fan? (2= very, 1= Somewhat"
+    ) +
+    theme(legend_position = "none")
+
 )
 
+```
+
+
+```{python}
+(
+    ggplot(df, aes(x="age", fill="fav_han")) +
+    geom_bar(position="dodge") +
+    facet_wrap("income") +
+    labs(
+        title="Star Wars vs Star Trek Fandom by Income",
+        x="Age", y="Count", fill="Luke Fan? (2= very, 1= Somewhat"
+    ) +
+    theme(legend_position = "none")
+
+)
+```
+
+```{python}
+(
+    ggplot(df, aes(x="age", fill="educ")) +
+    geom_bar(position="dodge") +
+    facet_wrap("income") +
+    labs(
+        title="Star Wars vs Star Trek Fandom by Income",
+        x="Age", y="Count", fill="Luke Fan? (2= very, 1= Somewhat"
+    ) +
+    theme(legend_position = "none")
+
+)
+```
+
+```{python}
+(
+    ggplot(df, aes(x="age", fill="gender")) +
+    geom_bar(position="dodge") +
+    facet_wrap("income") +
+    labs(
+        title="Star Wars vs Star Trek Fandom by Income",
+        x="Age", y="Count", fill="Luke Fan? (2= very, 1= Somewhat"
+    ) +
+    theme(legend_position = "none")
+
+)
+```
+
+```{python}
+(
+    ggplot(df, aes(x="age", fill="who_shot_first")) +
+    geom_bar(position="dodge") +
+    facet_wrap("income") +
+    labs(
+        title="Star Wars vs Star Trek Fandom by Income",
+        x="Age", y="Count", fill="Luke Fan? (2= very, 1= Somewhat"
+    ) +
+    theme(legend_position = "none")
+
+)
 ```
 
 
@@ -241,43 +346,11 @@ df2['region_plot'] = np.where(df2['region'].isin(top_regions), df2['region'], 'O
 
 ```
 
-
-```{python}
-display(ggplot(df, aes("seen_any", fill='fan_startrek')) +\
-  geom_bar() +\
-  facet_wrap("income"))
-```
-
-
-
-
 ```{python}
 display(ggplot(df, aes("region")) +\
   geom_bar() +\
-  coord_cartesian(ylim=(0,50)) +\
+  coord_cartesian(ylim=(0,30)) +\
   facet_wrap(facets=["income", "age"]))
-```
-
-```{python}
-(
-    ggplot(df.dropna(subset=['age']), aes(x="income", y="age")) +
-    geom_boxplot() +
-    coord_cartesian(ylim=(15, 100)) +
-    labs(title="Age by Income Bracket", x="Income", y="Age")
-)
-```
-
-```{python}
-(
-    ggplot(df, aes(x="educ", fill="income")) +
-    geom_bar(position="fill") +
-    coord_flip() +
-    labs(
-        title="Education and Income (Proportions)",
-        x="Education Level", y="Proportion", fill="Income"
-    )
-)
-
 ```
 
 
@@ -382,8 +455,7 @@ x_test_na = x_test.fillna(0)
 # Train Random Forest Classifier
 classifier_DT = RandomForestClassifier(
     random_state=70,
-    max_depth=9,
-    class_weight='balanced'
+    max_depth=12
 
 )
 classifier_DT.fit(x_train, y_train)
@@ -391,8 +463,8 @@ classifier_DT.fit(x_train, y_train)
 # Train Gradient Boosting Classifier
 classifier_DT2 = GradientBoostingClassifier(
   random_state=70,
-  learning_rate=.05,
-  max_depth=3
+  learning_rate=.01,
+  max_depth=7
 
 )
 classifier_DT2.fit(x_train_na, y_train)
@@ -400,7 +472,7 @@ classifier_DT2.fit(x_train_na, y_train)
 # Train Decision Tree Classifier
 classifier_DT3 = DecisionTreeClassifier(
     random_state=70,
-    max_depth=3
+    max_depth=6
 )
 classifier_DT3.fit(x_train, y_train)
 
@@ -409,8 +481,7 @@ classifier_DT4 = GaussianNB()
 classifier_DT4.fit(x_train_na, y_train)
 
 # KN
-classifier_DT5 = KNeighborsClassifier(n_neighbors=11,
-    weights='uniform', 
+classifier_DT5 = KNeighborsClassifier(n_neighbors=25,
     p=2                  # Power parameter (1=Manhattan, 2=Euclidean)
 )
 classifier_DT5.fit(x_train_na, y_train)
