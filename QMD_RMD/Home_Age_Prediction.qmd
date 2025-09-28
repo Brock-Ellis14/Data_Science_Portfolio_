@@ -1,7 +1,6 @@
 
 ---
 title: "Predicting Home Age with Machine Learning"
-subtitle: "STRETCH"
 author: "Brock Ellis"
 format:
   html:
