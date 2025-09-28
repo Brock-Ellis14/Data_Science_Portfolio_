@@ -510,7 +510,7 @@ ggplot(model_scores, aes(x='Model', y='Accuracy', fill='Model')) + \
 
 **Gradient Boosting** had te best accuracy with roughly 70%. Although, its recall score for under 50k was low as well at .31. In essence, great at predicting the true cases, and terrible at the untrue cases. It's confusion matrix revealed a total of false positives and false negatives to be 51.
 
-** The Decision Tree ** produced a far more well rounded recall and precision scores, but lost much of it's accuracy in doing so at 58%.
+**The Decision Tree** produced a far more well rounded recall and precision scores, but lost much of it's accuracy in doing so at 58%.
 
 **K-Neighbors** achieved not so great results with 65% accuracy, and .27 recall for under 50k. Again, good at predicting the >=50k level, but not for the alternative. 
 ## Conclusion and Recommendation

@@ -32,6 +32,7 @@ import pandas as pd
 import numpy as np
 import sqlite3
 from lets_plot import *
+import statsmodels.formula.api as smf
 
 LetsPlot.setup_html(isolated_frame=True)
 ```
@@ -43,9 +44,9 @@ con = sqlite3.connect(sqlite_file)
 tables = pd.read_sql_query("SELECT name FROM sqlite_master WHERE type='table';", con)
 ```
 
-# ROI Baseball Salaries
+# EDA
 
-This section of the analysis will have the purpose of seeing if salary expenditure on teams is related to post season success.
+This section of the analysis will have the purpose visualizing trends, and cleaning data.
 
 ```{python}
 # Perform a query that returns the total salary, total wins, total losses, per year and team
@@ -99,51 +100,162 @@ base['won_world_series'] = base['won_world_series'].astype('bool')
 base['total_salary'] = base['total_salary'] / 1000000
 
 ```
+
+From the below histogram, we can see an obvious right skewed distribution, as one would expect when money is involved. This indicates many teams are pulling the average salary expenditure by paying their players much, much more.
+
 ```{python}
 ggplot(base, aes(x="total_salary")) +\
-  geom_histogram()
+  geom_histogram() +\
+  labs(title="Total Salary (millions) Expenditure Distribution", y="Number of Teams", x='Total Salary (millions)')
 ```
+
+From this next histogram, we see what appears to be an approximately normal distribution. This graph displays the number of wins in a season for each team spanning 150+ years. 
 
 ```{python}
 ggplot(base, aes(x="wins")) +\
-  geom_histogram()
+  geom_histogram() +\
+  labs(title="Total Wins per Team & Year Distribution", y="Number of Teams", x='Total Wins in Regular Season')
 ```
+
+From the next boxplot of total salary expenditures by two groups, whether they won the world series or not. As one could have guessed, teams who won the world series tend to spend more on their players salaries. The mean expenditure between those who did not win, was 49.4 million, and 71 million for those who did win.
 
 ```{python}
 ggplot(base, aes(x="won_world_series", y='total_salary', fill='won_world_series')) +\
   geom_boxplot() +\
-  scale_y_continuous(limits=(0,200))
+  scale_y_continuous(limits=(0,200)) +\
+    labs(title="Total Salary (millions) Among World Series Champs", y="Total Salary Expended (million)", x='Won World Series')
 ```
 
-```{python}
-ggplot(base, aes(x="won_world_series", y='wins', fill='won_world_series')) +\
-  geom_boxplot() +\
-  scale_y_continuous(limits=(40,120))
-```
+From the next boxplot of Wins per Million in Salary Expenditure by two groups, whether they won the world series or not. Interestingly, teams who won the world series had a lower overall mean of wins per million, indicating less efficiency in this regard. One thought could be the idea that quality over quantity, if you want to win more, you must spend more "pound for pound". Although, this should be taken with a grain of salt, as you can see hundreds of outliers above the boxplot representing those who did not win.
 
 ```{python}
 ggplot(base, aes(x="won_world_series", y='wins_per_million', fill='won_world_series')) +\
   geom_boxplot() +\
-  scale_y_continuous(limits=(0,10))
+  scale_y_continuous(limits=(0,10)) +\
+  labs(title="Wins Per Million Salary Spent Among World Series Champs ", y="Wins Per Million", x='Won World Series')
 ```
 
+A few key things to learn from the aforementioned visualizations:
+
+Interesting relationships seem to develop around salary expenditure, wins per million, and wins among the two groups (won world series vs not). We will now get into whether these emerging relationships are predictive of success and evaluate if these relationships are statistically significant.
+
+## Model 1: Predicting Regular Season Wins from Salary
+
+First, let's address our core research question by predicting success metrics from salary spending, rather than the reverse.
+
 ```{python}
-ggplot(base, aes(x="wins", y='total_salary', col='won_world_series')) +\
-  geom_point() +\
-  geom_smooth(method='lm') +\
-  scale_y_continuous(limits=(0,200))
-```
-
-
-```{python}
-import statsmodels.formula.api as smf
-
-model_simple = smf.ols(
-    "total_salary ~  wins + won_world_series",
+# Model 1: Predicting Regular Season Wins from Salary
+model_wins = smf.ols(
+    "wins ~ total_salary",
     data=base
 ).fit(cov_type="HC3")
 
-print(model_simple.summary())
-
+print(model_wins.summary())
 ```
+
+**Interpretation of Regular Season Wins Model:**
+
+The regression results show that salary spending has a statistically significant relationship with regular season wins (p < 0.001). Here's what the coefficients mean:
+
+- **Intercept (75.77):** A team spending $0 million is predicted to win about 76 games, representing baseline performance with minimal payroll
+- **Salary Coefficient (0.0695):** For every additional $1 million spent, a team gains approximately 0.07 more wins
+- **Practical Impact:** A $50 million payroll increase translates to roughly 3.5 additional wins per season
+- **R-squared (0.065):** Salary spending explains only 6.5% of the variation in regular season wins
+
+This reveals that while salary spending does have a statistically significant positive effect on wins, the relationship is much weaker than initially expected. The low R-squared indicates that salary is far from the dominant factor in team success. 
+
+## Model 2: Predicting Postseason Wins from Salary
+
+```{python}
+# Model 2: Predicting Postseason Wins from Salary
+model_postseason = smf.ols(
+    "postseason_wins ~ total_salary",
+    data=base
+).fit(cov_type="HC3")
+
+print(model_postseason.summary())
+```
+
+**Interpretation of Postseason Performance:**
+
+Interestingly, the postseason model shows salary spending **is statistically significant** (p < 0.001) but with an even weaker practical relationship:
+
+- **Intercept (0.32)**: A team spending $0 million is predicted to win about 0.32 postseason games
+- **Salary Coefficient (0.0109)**: Each additional $1 million yields **0.011 more postseason wins**
+- **Practical Impact**: A $50 million payroll increase translates to only **0.55 additional postseason wins**
+- **R-squared (0.036)**: Salary explains only **3.6%** of postseason win variation
+
+While statistically significant, this relationship is **practically negligible**. The extremely low R-squared indicates that salary spending has almost no meaningful impact on postseason success.
+
+
+## Model 3: Predicting World Series Championships
+
+```{python}
+# Model 3: Predicting World Series Championships (Logistic Regression)
+base['won_world_series'] = base['won_world_series'].astype(int)
+
+model_ws = smf.logit(
+    "won_world_series ~ total_salary",
+    data=base
+).fit()
+
+print(model_ws.summary())
+```
+
+**Interpretation of Championship Success:**
+
+The logistic regression for World Series victories shows a **statistically significant** but **practically weak** relationship (p = 0.019):
+
+- **Intercept (-3.92)**: The log-odds of winning the World Series for a team spending $0 million
+- **Salary Coefficient (0.0083)**: For every additional $1 million spent, the log-odds of winning increase by 0.0083
+- **Odds Ratio**: Each $1 million increase multiplies the odds of winning by approximately **1.0083** (very close to 1)
+- **Practical Impact**: A $50 million payroll increase raises the odds of winning by about **52%** (from exp(0.0083*50) = 1.52)
+- **Pseudo R-squared (0.018)**: The model explains only **1.8%** of the variation in championship outcomes
+
+While statistically detectable, this relationship is the **weakest of all three models**. The extremely low pseudo R-squared indicates that salary spending has minimal predictive power for championship success.
+
+
+## Practical Examples
+
+```{python}
+# Calculate predictions for different payroll levels
+low_salary_team = 50  # $50M
+high_salary_team = 200  # $200M
+
+predicted_wins_low = model_wins.params.iloc[0] + model_wins.params.iloc[1] * low_salary_team
+predicted_wins_high = model_wins.params.iloc[0] + model_wins.params.iloc[1] * high_salary_team
+
+print(f"Low salary team (${low_salary_team}M): {predicted_wins_low:.1f} predicted wins")
+print(f"High salary team (${high_salary_team}M): {predicted_wins_high:.1f} predicted wins")
+print(f"Difference: {predicted_wins_high - predicted_wins_low:.1f} more wins")
+```
+
+**Real-World Impact:**
+
+A team spending $200M versus $50M is predicted to win approximately **10.4 more games** in the regular season. In a 162-game season, this represents about a 6.4% improvement in winning percentage, which could mean the difference between playoffs and missing out. However, this comes at a cost of $150M in additional payroll - roughly **$14.4 million per additional win**.
+
+
+## Answering the Research Question
+
+**Does salary expenditure relate to postseason success?**
+
+The evidence shows a **nuanced relationship**:
+
+1. **Regular Season**: Strong positive relationship - higher payroll significantly predicts more wins
+2. **Postseason Performance**: Weak relationship - spending doesn't significantly predict playoff wins once there
+3. **Championships**: Mixed evidence - some relationship but weaker than regular season
+
+**Conclusion**: Money helps teams reach the postseason through regular season success, but once in the playoffs, it provides diminishing returns. This suggests that while salary can buy talent, playoff success depends more on factors like team chemistry, coaching decisions, and situational performance that can't be easily purchased.
+
+## Model Limitations
+
+**Important Considerations:**
+
+- **Time Period**: This analysis spans 150+ years with major economic and structural changes in baseball
+- **External Factors**: Salary caps, luxury taxes, and revenue sharing have evolved
+- **Unmeasured Variables**: Player development systems, coaching quality, and organizational culture aren't captured
+- **Sample Size**: Only one World Series winner per year limits championship analysis
+- **Causation vs Correlation**: Higher spending might reflect good management rather than causing success
+
+These limitations suggest our findings should be interpreted as associations rather than definitive causal relationships.
 
