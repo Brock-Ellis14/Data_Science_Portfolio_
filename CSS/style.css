@@ -21,25 +21,25 @@ header {
 nav {
     height: 3.5em;
   display: flex;  
-  font-size: 1em;        /* lays out links side by side */
-  gap: .5em;              /* spacing between boxes */
-  justify-content: center; /* centers them in the nav */
+  font-size: 1em; 
+  gap: .5em; 
+  justify-content: center;
 }
 
 nav a {
-  display: inline-block;   /* make the <a> behave like a box */
-  padding: 7px 12px;      /* space inside the box */
-  border: 2px solid #333;  /* outline/border around each link */
-  border-radius: 6px;      /* optional: rounded corners */
-  text-decoration: none;   /* remove underline */
-  color: #333;             /* link text color */
-  background-color: #f9f9f9b0; /* subtle background */
-  transition: 0.3s;        /* smooth hover effects */
+  display: inline-block; 
+  padding: 7px 12px;   
+  border: 2px solid #333;  
+  border-radius: 6px;      
+  text-decoration: none;  
+  color: #333;            
+  background-color: #f9f9f9b0; 
+  transition: 0.3s;     
 }
 
 nav a:hover {
-  background-color: #6a95c6; /* hover effect */
-  border-color: #000;        /* darker border on hover */
+  background-color: #6a95c6; 
+  border-color: #000;      
 }
 
 
@@ -62,7 +62,7 @@ h1 {
 
 img {;
     height: 30em;
-    width: 20em;
+    width: 32em;
   border-radius: 8px;
   margin-bottom: 20px;
 }
