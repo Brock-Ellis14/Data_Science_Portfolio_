@@ -2,61 +2,103 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=, initial-scale=1.0">
-    <title>Home</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brock Ellis | Quantitative Risk Portfolio</title>
     <link rel="stylesheet" href="CSS/style.css">
 </head>
 <body>
     <header>
         <nav>
-            <a href="HTML/Analytics_MLB_TeamROI_BostonVsMiami.html">Baseball ROI Analysis (SQL, PY)</a>
-            <a href="HTML/Final_1.html">Gene Expression Analysis in MS (Logistic Regression)</a>
-            <a href="HTML/Home_Age_Prediction.html">Home Age Regression/Classification (ML)</a>
-            <a href="HTML/ML_StarWars_Predicton.html">Star Wars Income Regression/Classification (ML)</a>
+            <a href="HTML/sp500_Summary.docx (5).pdf">Executive Summary (Full Report)</a>
+            <a href="HTML/RegimeAnalysis.html">Market Risk Analysis</a>
+            <a href="HTML/Final_1.html">Model Risk Audit</a>
+            <a href="HTML/Analytics_MLB_TeamROI_BostonVsMiami.html">Capital Efficiency</a>
         </nav>
     </header>
 
     <main>
-        <h1>Brock Ellis | Data Science Projects</h1>
-        <img src="brock.jpg" alt="a head shot of Brock Ellis" width="300"/>
-        <p>
-            I am a Senior at BYU–Idaho studying Data Science, currently seeking a Data Science, Analytics, or Machine Learning internship.
-        </p>
-        <section>
-            <h2>Featured Projects</h2>
-
-            <h3>🏠 Predicting Home Age with Machine Learning</h3>
+        <section id="hero">
+            <h1>Brock Ellis | Data Science & Quantitative Risk</h1>
+            <img src="brock.jpg" alt="Headshot of Brock Ellis" width="250"/>
             <p>
-                Built classification and regression models to predict whether a home was built before 1980 and estimate its construction year. 
-                Gradient Boosting achieved 94% accuracy (classification) and R² = 0.87 (regression), showing strong predictive performance. 
-                Demonstrates skills in feature selection, model tuning, and interpretation of feature importance in real estate data.
-                <br><a href="HTML/Home_Age_Prediction.html">View Full Project →</a>
-            </p>
-
-            <h3>🧬 Gene Expression Analysis in Multiple Sclerosis</h3>
-            <p>
-                Analyzed expression levels of immune-related genes (CXCL10, IL7R, CD19, TNF) between MS patients and controls using R. 
-                Found CXCL10 significantly associated with MS status (p = 0.01). Demonstrates hypothesis testing, data wrangling, 
-                and logistic regression modeling for biomedical data.
-                <br><a href="HTML/Final_1.html">View Full Project →</a>
-            </p>
-
-            <h3>⚾ ROI Baseball Analytics</h3>
-            <p>
-                Explored the relationship between MLB team payroll and performance using 150+ years of Lahman data. 
-                SQL and Python models showed payroll predicts regular-season wins but not championships—illustrating 
-                diminishing returns of spending. Combines data engineering, financial modeling, and regression analysis.
-                <br><a href="HTML/Analytics_MLB_TeamROI_BostonVsMiami.html">View Full Project →</a>
-            </p>
-
-            <h3>🌌 Star Wars Predictive Analytics</h3>
-            <p>
-                Predicted whether survey respondents earned over $50K using Star Wars fan preference data. 
-                Tested Random Forest, KNN, and Gradient Boosting (70% accuracy). Demonstrates end-to-end data cleaning, 
-                feature engineering, and model evaluation on real categorical data.
-                <br><a href="HTML/ML_StarWars_Predicton.html">View Full Project →</a>
+                Senior Data Science student at BYU–Idaho specializing in <strong>Model Risk Management (MRM)</strong> and <strong>Market Regime Forecasting</strong>. 
+                I bridge the gap between financial theory and machine learning using R, Python, and SQL to audit systemic risk and capital efficiency.
             </p>
         </section>
+
+        <hr>
+
+        <section id="projects">
+            <h1>Featured Project Modules</h1>
+
+            <article>
+                <h3>Market Risk: S&P 500 Regime Predictor (XGBoost vs. Random Forest)</h3>
+                <p>
+                    Developed a cross-platform predictive engine to forecast monthly S&P 500 regimes. 
+                    I engineered a high-dimensional feature set in <strong>R (Tidyquant)</strong>, incorporating <strong>multi-horizon lags</strong> of <strong>FRED macroeconomic data</strong>.
+                    <br><br>
+                    <strong>Technical Execution:</strong> Migrated the pipeline to <strong>Python</strong> for a comparative model audit. I selected XGBoost for its handling of non-linear time-series dependencies and implemented <strong>L1/L2 regularization</strong> to mitigate noise in high-volatility environments. 
+                    Achieved a 31% classification accuracy, representing a significant lift over the random baseline.
+                    <br>
+                    <a href="HTML/sp500_Summary.docx (5).pdf">View Executive Summary →</a> | 
+                    <a href="HTML/Final_1.html">View Technical Pipeline →</a>
+                </p>
+            </article>
+
+            <article>
+                <h3>Macro-Financial Analysis: 2008 GFC vs. 2020 COVID-19 Shock</h3>
+                <p>
+                    Built a custom risk engine in <strong>R (Tidyquant/XTS)</strong> to analyze how macroeconomic shocks impacted 11 equity sectors across two distinct crisis regimes.
+                    <br><br>
+                    <strong>Correlation Dynamics:</strong> Identified a <strong>25% surge</strong> in cross-sector synchronization during the COVID-19 shock. Quantified tail-risk using <strong>Expected Shortfall (ES)</strong> and <strong>Maximum Drawdown</strong>, aligning methodologies with <strong>Basel III</strong> standards.
+                    <br>
+                    <a href="HTML/RegimeAnalysis.html">View Macro Analysis →</a>
+                </p>
+            </article>
+
+            <article>
+                <h3>Model Risk: Biostatistical Signal Detection & Factor Audit</h3>
+                <p>
+                    Analyzed high-dimensional data to isolate predictive "states" amidst extreme noise. This project serves as a proxy for <strong>Credit Default Modeling</strong> and <strong>Loss Forecasting</strong> within a Model Risk framework.
+                    <br><br>
+                    <strong>Methodology:</strong> Executed <strong>Wilcoxon Rank-Sum</strong> and <strong>Independent T-Tests</strong>. Validated model calibration using <strong>Hosmer-Lemeshow Goodness-of-Fit</strong> testing to ensure no meaningful deviation between predicted and observed values.
+                    <br>
+                    <a href="HTML/Final_1.html">View Statistical Audit →</a>
+                </p>
+            </article>
+
+            <article>
+                <h3>Financial Econometrics: Capital Allocation Efficiency Modeling</h3>
+                <p>
+                    Analyzed 150+ years of financial data to model the <strong>Marginal Return on Investment (ROI)</strong> of capital expenditures using <strong>SQL</strong> and <strong>Python (Statsmodels)</strong>.
+                    <br><br>
+                    <strong>Quant Insights:</strong> Implemented <strong>HC3 Heteroscedasticity-robust standard errors</strong> to prove diminishing marginal returns on capital. Quantified the "Championship Premium," finding that massive capital increases yield only marginal success odds—highlighting significant <strong>Unsystematic Risk</strong>.
+                    <br>
+                    <a href="HTML/Analytics_MLB_TeamROI_BostonVsMiami.html">View Efficiency Audit →</a>
+                </p>
+            </article>
+        </section>
+
+        <hr>
+
+        <section id="roadmap">
+            <h2>Quantitative Development Roadmap (2026)</h2>
+            <div class="roadmap-grid">
+                <div>
+                    <strong>Q1:</strong><br>
+                    Implementing <strong>Bayesian Statistics</strong> to model dynamic credit risk and <strong>Developing AI Systems</strong> for real-time model deployment.
+                </div>
+                <br>
+                <div>
+                    <strong>Q3 - Q4:</strong><br>
+                    Utilizing <strong>Big Data Programming</strong> for enterprise-scale risk engines and <strong>Numerical Analysis</strong> for algorithmic model auditing.
+                </div>
+            </div>
+        </section>
     </main>
+
+    <footer>
+        <p>&copy; 2026 Brock Ellis | Portfolio developed for Quantitative Analytics Roles</p>
+    </footer>
 </body>
 </html>

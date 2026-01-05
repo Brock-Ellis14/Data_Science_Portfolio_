@@ -1,0 +1,617 @@
+---
+title: "Financial Crisis vs COVID Crisis"
+subtitle: "Sector & Economic Insights"
+author: "Brock Ellis"
+format:
+  html:
+    self-contained: true
+    page-layout: full
+    title-block-banner: true
+    fig-height: 6
+    fig-width: 9
+    toc: true
+    toc-depth: 3
+    toc-location: body
+    number-sections: false
+    html-math-method: katex
+    code-fold: true
+    code-summary: "Show the code"
+    code-overflow: wrap
+    code-copy: hover
+    code-tools:
+        source: false
+        toggle: true
+        caption: See code
+execute: 
+  warning: false
+---
+
+# Data Import
+
+```{r}
+library(tidyverse)
+library(tidyquant)
+library(scales)
+library(dygraphs)
+library(xts)
+library(ggrepel)
+```
+
+```{r}
+# Define tickers and FRED series
+tickers <- c("XLK", "VFH", "XLV", "XLY", "XLP", "XLI", "XLE", "XLB", "IXJ", "XLU", "VNQ")
+fred_series <- c(
+  "UNRATE", "FEDFUNDS", "PAYEMS", "CPIAUCSL", "INDPRO", "PERMIT", "M2SL", "GS1", "UMCSENT"
+)
+
+# Get Stock Data
+data <- tq_get(tickers, get = "stock.prices", from = "2000-01-01")
+
+# Get FRED Data
+fred_data_long <- tq_get(
+  fred_series,
+  get = "economic.data",
+  from = "2000-01-01"
+)
+
+# Convert FRED data to wide format
+fred_data_wide <- fred_data_long %>%
+  pivot_wider(
+    names_from = symbol,
+    values_from = price
+  )
+```
+
+```{r}
+# Key Global Indicators: US Dollar Index (DEXUSEU) and Crude Oil (WTISPLC)
+# DEXUSEU is EUR/USD, and WTISPLC is WTI Spot Price.
+global_tickers <- c("DEXUSEU", "WTISPLC")
+
+global_data_long <- tq_get(
+  global_tickers,
+  get = "economic.data", 
+  from = "2000-01-01"
+)
+
+global_data_wide <- global_data_long %>%
+  pivot_wider(
+    names_from = symbol,
+    values_from = price
+  )
+
+# Combine FRED and Global Data for a comprehensive macro dataset
+macro_data_wide <- fred_data_wide %>%
+  left_join(global_data_wide, by = "date")
+
+# Replace the old fred_data_wide with the new macro_data_wide for later steps
+fred_data_wide <- macro_data_wide
+```
+
+```{r}
+# Calculate Monthly Log Returns
+sector_returns_monthly <- data %>%
+  group_by(symbol) %>%
+  tq_transmute(
+    select = adjusted,
+    mutate_fun = periodReturn,
+    period = "monthly", 
+    type = "log" # Log returns for statistical analysis
+  ) %>%
+  rename(monthly_log_return = monthly.returns)
+
+# Define the Ticker-to-Sector Mapping
+sector_map <- c(
+ "XLK" = "Technology",
+ "VFH" = "XL_Financials",
+ "XLV" = "Health Care",
+ "XLY" = "Consumer Discretionary",
+ "XLP" = "Consumer Staples",
+ "XLI" = "Industrials",
+ "XLE" = "Energy",
+ "XLB" = "Materials",
+ "IXJ" = "Communication Services",
+ "XLU" = "Utilities",
+ "VNQ" = "Real Estate"
+)
+
+# Calculate Monthly Log Returns, using the full Sector Name
+sector_returns_monthly <- data %>%
+  # Apply the mapping to the 'symbol' column
+  mutate(symbol = sector_map[symbol]) %>%
+  group_by(symbol) %>%
+  tq_transmute(
+    select = adjusted,
+    mutate_fun = periodReturn,
+    period = "monthly",
+    type = "log"
+  ) %>%
+  rename(monthly_log_return = monthly.returns)
+
+
+# Calculate Year-over-Year (YoY) Change for economic indicators
+fred_data_analysis <- fred_data_wide %>%
+  mutate(
+    PAYEMS_YoY = (PAYEMS / lag(PAYEMS, 12) - 1) * 100,
+    CPIAUCSL_YoY = (CPIAUCSL / lag(CPIAUCSL, 12) - 1) * 100,
+    UNRATE_Level = UNRATE,
+    FEDFUNDS_Level = FEDFUNDS,
+    UMCSENT_Level = UMCSENT
+  ) %>%
+  select(date, UNRATE_Level, FEDFUNDS_Level, PAYEMS_YoY, CPIAUCSL_YoY, UMCSENT_Level)
+```
+
+```{r}
+# Define the exact crisis periods
+crisis_periods <- list(
+  Financial = c("2007-09-01", "2009-06-30"), 
+  COVID     = c("2020-02-01", "2021-09-30")  
+)
+
+# Function to calculate performance metrics
+calculate_crisis_performance <- function(data, start_date, end_date) {
+  
+  # Filter and prepare data for nesting
+  crisis_data <- data %>%
+    filter(date >= as.Date(start_date) & date <= as.Date(end_date)) %>%
+    # Convert monthly log returns to simple returns (DO NOT MES WITH THIS)
+    mutate(simple_return = exp(monthly_log_return) - 1) %>%
+    select(date, symbol, simple_return)
+  
+  # SNest the data by symbol
+  nested_data <- crisis_data %>%
+    group_by(symbol) %>%
+    nest() 
+
+  # Run the calculation using map_dbl (return as type double)
+  performance_metrics <- nested_data %>%
+    mutate(
+      Mean_Return = map_dbl(data, ~ mean(log(.x$simple_return + 1), na.rm = TRUE)),
+      Std_Dev = map_dbl(data, ~ sd(log(.x$simple_return + 1), na.rm = TRUE)),
+      
+      # convrt the nested tibble to an xts object BEFORE!!!! calculating maxDrawdown
+      Max_Drawdown = map_dbl(data, function(df) {
+        returns_xts <- xts(x = df$simple_return, order.by = df$date)
+        
+        return(maxDrawdown(returns_xts) * 100)
+      })
+    ) %>%
+    select(symbol, Mean_Return, Std_Dev, Max_Drawdown)
+  
+  return(performance_metrics)
+}
+  
+
+# Apply the function to both crises and combine results
+sector_performance_combined <- bind_rows(
+  calculate_crisis_performance(sector_returns_monthly, crisis_periods$Financial[1], crisis_periods$Financial[2]) %>%
+    mutate(Crisis = "Financial Crisis"),
+  calculate_crisis_performance(sector_returns_monthly, crisis_periods$COVID[1], crisis_periods$COVID[2]) %>%
+    mutate(Crisis = "COVID-19 Crisis")
+)
+```
+# Introduction
+
+This project examines how U.S. equity sectors and key macroeconomic indicators behaved during two major market disruptions: the Global Financial Crisis (2007–2009) and the COVID-19 shock (2020). 
+
+Using sector-level returns, drawdowns, volatility, and cross-sector correlations, the analysis highlights fundamental differences in the severity, duration, and synchronization of market stress across the two episodes. In addition, macroeconomic indicators such as unemployment, monetary policy, inflation, and consumer sentiment provide critical context for understanding these market dynamics. 
+
+Together, the results illustrate how a prolonged, systemic financial collapse contrasts with a sudden, policy-driven economic shock, offering insight into risk management and diversification under extreme conditions.
+
+# Sector Performance Analysis
+
+## Maximum Drawdown Comparison
+
+This chart highlights a clear difference in the severity and breadth of losses across sectors during the two crises. The Financial Crisis (blue bars) produced consistently deeper maximum drawdowns across every sector, with many experiencing losses in the 40–70% range, underscoring the systemic and prolonged nature of the shock. Sectors such as Financials, Real Estate, Materials, and Industrials were especially hard hit, reflecting the crisis's roots in the financial system and its spillover into the real economy.
+
+In contrast, the COVID-19 Crisis (green bars) resulted in shallower maximum drawdowns overall, generally between 10–45%, and showed greater dispersion across sectors. Defensive sectors like Communication Services and Health Care were relatively resilient, while cyclicals such as Energy and Consumer Discretionary saw larger declines. Together, the comparison illustrates that while COVID-19 triggered a sharp and sudden sell-off, the Global Financial Crisis imposed deeper, more uniform damage across the market, revealing far greater systemic vulnerability.
+
+```{r}
+# Max Drawdown Bar Chart
+ggplot(sector_performance_combined, aes(x = symbol, y = Max_Drawdown, fill = Crisis)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  labs(
+    title = "Sector Vulnerability: Maximum Drawdown Comparison",
+    subtitle = "Financial Crisis (Aug '07 - Jun '09) vs. COVID-19 Crisis (Feb '20 - Sep '21)",
+    x = "Sector ETF Ticker",
+    y = "Maximum Drawdown (%)",
+    fill = "Crisis Period"
+  ) +
+  scale_y_continuous(labels = function(x) paste0(x, "%")) +
+  scale_fill_manual(values = c("Financial Crisis" = "steelblue", "COVID-19 Crisis" = "forestgreen")) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+## Tail Risk Analysis
+
+
+
+Expected Shortfall (ES) at a 95% confidence level is utilized to quantify "Tail Risk," a standard favored by FRM and Basel III. Unlike Value-at-Risk, ES calculates the average magnitude of losses specifically within the worst 5% of outcomes. This metric reveals the actual severity of potential losses beyond a simple historical peak-to-trough record.
+
+
+The data reveals a regime shift: the 2008 crisis saw widespread systemic risk, whereas the 2020 shock produced extreme, localized outliers. Energy proved the most severe outlier in 2020, with an Expected Shortfall exceeding 40%. Conversely, Real Estate and Financials exhibited the deepest tail risks during the 2008 systemic housing collapse.
+
+
+
+```{r}
+# Function to calculate Quant Risk Metrics
+calculate_quant_risk <- function(data, start_date, end_date) {
+  
+  # Filter data for the specific crisis
+  crisis_returns <- data %>%
+    filter(date >= as.Date(start_date) & date <= as.Date(end_date)) %>%
+    pivot_wider(names_from = symbol, values_from = monthly_log_return) %>%
+    column_to_rownames(var = "date") %>%
+    as.matrix() %>%
+    as.xts()
+  
+  # 1. 95% Historical VaR (What is the 5% worst-case monthly loss?)
+  var_95 <- VaR(crisis_returns, p = 0.95, method = "historical")
+  
+  # 2. 95% Expected Shortfall (If we hit the 5% tail, what is the average loss?)
+  es_95 <- ETL(crisis_returns, p = 0.95, method = "historical")
+  
+  # Combine into a tidy tibble
+  metrics <- tibble(
+    symbol = colnames(var_95),
+    VaR_95 = as.vector(var_95) * 100,
+    ES_95 = as.vector(es_95) * 100
+  )
+  
+  return(metrics)
+}
+
+# Calculate for both crises
+quant_risk_combined <- bind_rows(
+  calculate_quant_risk(sector_returns_monthly, crisis_periods$Financial[1], crisis_periods$Financial[2]) %>%
+    mutate(Crisis = "Financial Crisis"),
+  calculate_quant_risk(sector_returns_monthly, crisis_periods$COVID[1], crisis_periods$COVID[2]) %>%
+    mutate(Crisis = "COVID-19 Crisis")
+)
+
+# Visualize Expected Shortfall (The 'True' Tail Risk)
+ggplot(quant_risk_combined, aes(x = reorder(symbol, ES_95), y = ES_95, fill = Crisis)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  coord_flip() +
+  labs(
+    title = "Tail Risk Analysis: 95% Expected Shortfall (ES)",
+    subtitle = "The average monthly loss expected in the worst 5% of outcomes",
+    x = "Sector",
+    y = "Expected Shortfall (%)",
+    fill = "Crisis"
+  ) +
+  scale_fill_manual(values = c("Financial Crisis" = "steelblue", "COVID-19 Crisis" = "forestgreen")) +
+  theme_minimal(base_size = 14)
+
+```
+
+
+
+## Risk-Return Profile
+
+This scatter plot highlights a clear shift in sector risk–return dynamics between the two crises. During the Financial Crisis (blue triangles), nearly all sectors lie in the negative-return region, with elevated volatility and especially severe outcomes for Financials and Real Estate. This clustering reflects the prolonged, systemic nature of the GFC, where higher risk was consistently paired with worse returns.
+
+In contrast, the COVID-19 Crisis (green circles) shows an upward shift in returns and greater cross-sector dispersion. Most sectors achieved positive mean monthly returns despite moderate volatility, indicating a rapid recovery. Technology and Communication Services exhibit strong returns with relatively lower risk, while Energy stands out as a high-volatility outlier. Overall, the chart underscores the persistent damage of the GFC versus the short-lived but volatile shock of COVID-19.
+
+```{r}
+# Risk/Return Scatter Plot
+ggplot(sector_performance_combined, aes(x = Std_Dev, y = Mean_Return, color = Crisis)) + 
+  geom_text(
+    aes(label = symbol),
+    size = 3,
+    color="black",
+    nudge_x = 0.00325, # to right
+    nudge_y = 0.003 # up
+  ) +
+  geom_point(aes(shape = Crisis), size = 4) +
+  labs(
+    title = "Risk-Return Profile by Sector During Crisis Periods",
+    subtitle = "Monthly Mean Log Return vs. Monthly Standard Deviation (Volatility)",
+    x = "Risk (Standard Deviation of Monthly Log Returns)",
+    y = "Return (Mean Monthly Log Return)",
+    color = "Crisis Period",
+    shape = "Crisis Period"
+  ) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", alpha = 0.3) +
+  scale_x_continuous(labels = percent) +
+  scale_y_continuous(labels = percent) +
+  scale_color_manual(values = c("Financial Crisis" = "steelblue", "COVID-19 Crisis" = "forestgreen")) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "bottom", plot.title = element_text(face = "bold"))
+```
+
+
+
+# Macroeconomic Context
+
+These sector-level dynamics unfolded against starkly different macroeconomic backdrops. The following charts examine key economic indicators that shaped market conditions during each crisis period.
+
+## Labor Markets and Monetary Policy
+
+This chart contrasts labor market dynamics and monetary policy across the two crises. During the Financial Crisis (gray shading), the labor market deteriorates gradually: the unemployment rate rises steadily to above 10%, while payroll growth declines into negative territory and remains weak for several years. This slow erosion reflects the prolonged fallout from the housing and credit collapse.
+
+In contrast, the COVID-19 shock (green shading) is marked by an abrupt, unprecedented break. Unemployment spikes almost instantly to over 14%, and payroll growth collapses to nearly −15% in a single month, capturing the sudden halt caused by lockdowns. The Fed Funds Rate highlights the policy difference: rates were cut progressively during the GFC, whereas they were already near zero before COVID, forcing an immediate emergency response to stabilize the economy.
+
+```{r}
+# Key US Economic Indicators (Unemployment, Fed Funds, Year-over-Year Payrolls)
+dy_graph1_data <- fred_data_analysis %>%
+  select(date, UNRATE_Level, FEDFUNDS_Level, PAYEMS_YoY) %>%
+  drop_na() 
+
+fred_data_xts1 <- xts(
+  x = dy_graph1_data %>% select(-date),
+  order.by = dy_graph1_data$date
+)
+
+trans_steelblue <- rgb(70/255, 130/255, 180/255, alpha = 0.2)
+trans_forestgreen <- rgb(34/255, 139/255, 34/255, alpha = 0.2)
+
+dygraph(fred_data_xts1, main = "Key US Economic Indicators (2000-Present): Labor and Policy") %>% 
+  dyRangeSelector() %>% 
+  dyShading(from = "2007-12-01", to = "2009-06-30", color = trans_steelblue, axis = "x") %>%
+  dyShading(from = "2020-02-01", to = "2021-04-30", color = trans_forestgreen, axis = "x") %>%
+  dyLegend(show = "always", width = 300) %>%
+  dySeries("UNRATE_Level", label = "Unemployment Rate (%)") %>%
+  dySeries("FEDFUNDS_Level", label = "Fed Funds Rate (%)") %>%
+  dySeries("PAYEMS_YoY", label = "Payroll Growth (YoY %)")
+```
+
+## Consumer Sentiment and Inflation Dynamics
+
+This chart compares consumer sentiment and inflation across the two crisis periods. The Consumer Sentiment Index (green line) declines sharply in both episodes, but the pattern differs: during the Financial Crisis (gray shading), sentiment falls deeply and recovers only gradually over several years, while during the COVID-19 shock (green shading), sentiment drops abruptly from elevated levels, reflecting the sudden uncertainty triggered by the pandemic. In both cases, consumer confidence deteriorates significantly, though the COVID decline is more immediate.
+
+The key distinction emerges in CPI inflation (blue line). During the Financial Crisis, inflation trends downward and briefly turns negative, signaling deflationary pressure from collapsing demand. In contrast, during and after the COVID-19 shock, inflation remains positive and subsequently accelerates, driven by supply disruptions and unprecedented fiscal and monetary stimulus. This divergence underscores the fundamentally different economic mechanisms behind the two crises: a demand-driven financial collapse versus a shock combining supply constraints with aggressive policy intervention.
+
+```{r}
+# Key US Economic Indicators (Consumer Sentiment, CPI YoY)
+dy_graph2_data <- fred_data_analysis %>%
+  select(date, UMCSENT_Level, CPIAUCSL_YoY) %>%
+  drop_na()
+
+fred_data_xts2 <- xts(
+  x = dy_graph2_data %>% select(-date),
+  order.by = dy_graph2_data$date
+)
+
+dygraph(fred_data_xts2, main = "Key US Economic Indicators (2000-Present): Sentiment and Inflation") %>% 
+  dyRangeSelector() %>% 
+  dyShading(from = "2007-12-01", to = "2009-06-30", color = trans_steelblue, axis = "x") %>% 
+  dyShading(from = "2020-02-01", to = "2021-04-30", color = trans_forestgreen, axis = "x") %>% 
+  dyLegend(show = "always", width = 300) %>%
+  dySeries("UMCSENT_Level", label = "Consumer Sentiment Index") %>%
+  dySeries("CPIAUCSL_YoY", label = "CPI Inflation (YoY %)")
+```
+
+# Sector-Specific Deep Dive
+
+To illustrate these broader patterns in greater detail, we now examine specific sectors and their relationship to global market forces, return distributions, and cross-sector correlations.
+
+## Energy Sector vs. Global Indicators
+
+This time-series plot illustrates the relationship between the energy sector and key global indicators, all indexed to 1.0 in 2005. Crude oil prices (red line) exhibit large cyclical swings, surging prior to the Financial Crisis and collapsing sharply during the 2008–2009 period (gray shading). The energy sector ETF (XLE) closely tracks these movements, declining alongside oil as demand weakened, highlighting the sector's strong dependence on commodity prices.
+
+During the COVID-19 shock (green shading), oil prices experience an abrupt and unusually deep collapse, while XLE also falls sharply before recovering, underscoring the severity of the demand shock. By contrast, the EUR/USD exchange rate (blue line) remains comparatively stable and often moves independently of oil and XLE, reinforcing that energy sector performance is driven primarily by global commodity dynamics rather than currency fluctuations alone.
+
+```{r}
+# Filter Sector Data to XLE and calculate cumulative simple returns
+xle_cum_returns <- data %>%
+  filter(symbol == "XLE") %>%
+  select(date, adjusted) %>%
+  tq_mutate(
+    select = adjusted,
+    mutate_fun = ROC, 
+    type = "discrete",
+    col_rename = "daily_return" 
+  ) %>%
+  mutate(
+    XLE_Cumulative_Return = cumprod(1 + daily_return)
+  ) %>%
+  select(date, XLE_Cumulative_Return)
+
+macro_plot_data <- fred_data_wide %>%
+  select(date, WTISPLC, DEXUSEU) %>%
+  drop_na() %>%
+  mutate(
+    WTISPLC_Index = WTISPLC / first(WTISPLC),
+    DEXUSEU_Index = DEXUSEU / first(DEXUSEU)
+  )
+
+# date is between 2005-01-01 and covids end
+combined_index_data <- xle_cum_returns %>%
+  inner_join(macro_plot_data, by = "date") %>%
+  filter(
+    date >= as.Date("2005-01-01") & date <= as.Date("2021-12-31")
+  ) %>%
+  pivot_longer(
+    cols = ends_with("_Index") | ends_with("Return"),
+    names_to = "Series",
+    values_to = "Index_Value"
+  ) %>%
+  group_by(Series) %>%
+  mutate(Index_Value = Index_Value / first(Index_Value))
+
+# 4. Plot the comparison
+ggplot(combined_index_data, aes(x = date, y = Index_Value, color = Series)) +
+  geom_line(linewidth = 1) +
+  labs(
+    title = "Energy Sector (XLE) vs. Global Indicators",
+    subtitle = "Indexed Performance Across Two Crises (Index Value = 1.0 on 2005-01-01)",
+    x = "Date",
+    y = "Indexed Value (Relative to 2005-01-01)",
+    color = "Series"
+  ) +
+  scale_y_continuous(labels = dollar) +
+  scale_color_manual(
+    values = c("XLE_Cumulative_Return" = "#2ecc71", "WTISPLC_Index" = "#e74c3c", "DEXUSEU_Index" = "#3498db"),
+    labels = c("XLE_Cumulative_Return" = "XLE Sector ETF", "WTISPLC_Index" = "Crude Oil Price", "DEXUSEU_Index" = "EUR/USD Rate")
+  ) +
+  theme_minimal(base_size = 14) +
+  annotate("rect", xmin = as.Date("2007-12-01"), xmax = as.Date("2009-06-30"), ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "steelblue", alpha=.95) +
+  annotate("rect", xmin = as.Date("2020-02-01"), xmax = as.Date("2021-04-30"), ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "forestgreen", alpha=.95) +
+  theme(legend.position = "bottom", plot.title = element_text(face = "bold"))
+```
+
+## Distribution of Monthly Sector Returns
+
+This boxplot compares the distribution of monthly sector returns across the two crises, highlighting differences in median performance, volatility, and tail risk. During the Financial Crisis (blue boxes), most sectors display lower medians and wider interquartile ranges, indicating sustained negative pressure and elevated volatility—most notably in Financials, Real Estate, Industrials, and Energy. The frequent and deep negative outliers reflect the prolonged and systemic nature of losses during the GFC.
+
+In contrast, the COVID-19 Shock (green boxes) generally shows medians closer to zero or slightly positive with somewhat tighter central ranges, but with pronounced tail risk, particularly in Energy and Real Estate. Technology stands out in both periods with a relatively narrow, stable distribution centered near zero, underscoring its comparative resilience. Overall, the chart suggests the GFC was characterized by persistent downside risk, while COVID produced sharper, more episodic extreme moves.
+
+```{r}
+# Filter and label monthly returns
+financial_start <- as.Date("2007-12-01")
+financial_end <- as.Date("2009-06-30")
+covid_start <- as.Date("2020-02-01")
+covid_end <- as.Date("2021-09-30")
+
+crisis_returns_filtered <- sector_returns_monthly %>%
+  filter(
+    (date >= financial_start & date <= financial_end) |
+    (date >= covid_start & date <= covid_end)
+  ) %>%
+  mutate(
+    Crisis = case_when(
+      date >= financial_start & date <= financial_end ~ "A - Financial Crisis",
+      date >= covid_start & date <= covid_end ~ "B - COVID-19 Shock",
+      .default = "Other"
+    )
+  )
+
+ggplot(crisis_returns_filtered, aes(x = symbol, y = monthly_log_return, fill = Crisis)) +
+  geom_boxplot(position = position_dodge(width = 0.8), outlier.alpha = 0.5) +
+  labs(
+    title = "Distribution of Monthly Sector Returns During Crisis Periods",
+    subtitle = "Comparing Volatility, Median, and Tail Risk (Outliers) Between Crises",
+    x = "Sector ETF Ticker",
+    y = "Monthly Log Return",
+    fill = "Crisis Period"
+  ) +
+  scale_y_continuous(labels = percent) +
+  scale_fill_manual(values = c("A - Financial Crisis" = "steelblue", "B - COVID-19 Shock" = "forestgreen")) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+## Portfolio Diversification Effects
+
+Finally, we assess how crisis conditions affected portfolio diversification through cross-sector correlations. This analysis reveals critical differences in the effectiveness of diversification strategies during each crisis period.
+
+### Sector Correlation Heatmaps
+
+This heatmap visualizes how sector diversification deteriorates during periods of market stress. During the Financial Crisis (Panel A), correlations are elevated but heterogeneous, with many sector pairs falling in the 0.60–0.85 range, indicating that diversification weakened but did not disappear entirely. Notably, Financials retain comparatively lower correlations with sectors such as Communication Services and Energy, suggesting limited but meaningful diversification remained during the GFC.
+
+In contrast, the COVID-19 Shock (Panel B) displays a much more uniform and elevated correlation structure, with most sector pairings clustering around 0.80–0.95. This convergence reflects a rapid "risk-on/risk-off" regime in which sector-specific fundamentals mattered far less. Overall, the comparison shows that while both crises reduced diversification, COVID-19 produced a sharper and more synchronized correlation spike, rendering diversification far less effective during the acute phase of the shock.
+
+```{r}
+# Function to prepare data for correlation calculation and plotting
+prepare_correlation_data <- function(start_date, end_date, crisis_name) {
+  crisis_returns_filtered <- sector_returns_monthly %>%
+    filter(date >= as.Date(start_date) & date <= as.Date(end_date)) %>%
+    drop_na()
+  
+  returns_xts <- crisis_returns_filtered %>%
+    pivot_wider(names_from = symbol, values_from = monthly_log_return) %>%
+    column_to_rownames(var = "date") %>%
+    as.matrix() %>%
+    as.xts()
+  
+  cor_matrix <- cor(returns_xts)
+  
+  cor_long <- cor_matrix %>%
+    as.data.frame() %>%
+    rownames_to_column(var = "Sector_X") %>%
+    pivot_longer(cols = -Sector_X, names_to = "Sector_Y", values_to = "Correlation") %>%
+    mutate(Crisis = crisis_name)
+  
+  return(cor_long)
+}
+
+# Calculate correlation for BORHT crises
+cor_gfc <- prepare_correlation_data(
+  crisis_periods$Financial[1], 
+  crisis_periods$Financial[2], 
+  "A - Financial Crisis"
+)
+
+cor_covid <- prepare_correlation_data(
+  crisis_periods$COVID[1], 
+  crisis_periods$COVID[2], 
+  "B - COVID-19 Shock"
+)
+
+# Combine the two correlation tibbles for a side-by-side
+cor_combined <- bind_rows(cor_gfc, cor_covid)
+
+
+ggplot(cor_combined, aes(x = Sector_X, y = Sector_Y, fill = Correlation)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(Correlation, 2)), color = "black", size = 3) +
+  facet_wrap(~ Crisis) +
+  labs(
+    title = "Sector Correlation Heatmaps During Crisis Periods",
+    subtitle = "Visualizing the Breakdown of Diversification",
+    x = "",
+    y = "",
+    fill = "Correlation"
+  ) +
+  scale_fill_gradient2(
+    low = "blue", 
+    mid = "white",
+    high = "#e74c3c", 
+    midpoint = 0.5,
+    limit = c(min(cor_combined$Correlation), 1)
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1),
+    panel.grid.major = element_blank()
+  )
+```
+
+# Conclusion
+
+
+This analysis demonstrates that while both crises were historically severe, they represented fundamentally different **risk regimes**. The Global Financial Crisis was a crisis of **duration and systemic persistence**, characterized by a slow decay in labor markets and a multi-year recovery period. In contrast, the COVID-19 shock was a crisis of **convexity and intensity**, featuring unprecedented spikes in tail risk and a rapid, policy-supported reversal.
+
+
+
+## Key Quantitative Takeaways
+
+* **Tail Risk Divergence:** The GFC caused a broad-based elevation of risk across all sectors, but the COVID-19 shock produced extreme, localized outliers. The **Expected Shortfall (ES)** in the Energy sector during 2020 reached nearly double that of the Real Estate sector during the 2008 collapse, highlighting the violence of pandemic-era supply shocks.
+
+* **Correlation Breakdown:** Diversification provided a meaningful "safety valve" during the GFC, as sector correlations remained heterogeneous. However, the COVID-19 period saw a total synchronization of market moves (correlations > 0.85), proving that during high-intensity shocks, traditional sector diversification can temporarily fail as a risk mitigation strategy.
+
+* **Macro-Financial Transmission:** The transition from a demand-driven deflationary shock (2008) to a supply-driven inflationary shock (2020) fundamentally altered the market's risk-return profile. While the 2008 crisis required a "survival" mindset, the 2020 shock rewarded "regime-shift" awareness, as Technology and Communications emerged with significantly more resilient tail risk profiles than traditional cyclical sectors.
+
+
+
+## Model Risk & Limitations
+
+As part of a robust **Model Risk Management (MRM)** framework, it is critical to identify the inherent limitations of this analysis. No model perfectly captures the complexity of market dynamics, particularly during structural regime shifts.
+
+* **Asset Class Concentration:** This report focuses exclusively on **Equity Sector ETFs**. Consequently, it does not account for the diversification benefits of a multi-asset portfolio (e.g., Investment Grade Bonds, Preferred Stocks, or Commodities). In a true institutional stress test, the inclusion of fixed-income instruments would likely dampen the observed **Expected Shortfall**, as high-quality bonds often exhibit "flight-to-quality" behavior during equity drawdowns.
+
+* **Survival & Selection Bias:** The analysis is restricted to funds with data availability dating back to 2000. By utilizing specific established ETFs (like the Select Sector SPDRs), the model may suffer from **selection bias**, as it does not account for funds or companies that were delisted or became insolvent during the 2008 crisis.
+
+* **Historical Simulation Constraints:** The **Expected Shortfall** is calculated using the **Historical Simulation** method. This approach assumes that the past is a reliable guide to the future. It may fail to predict "Black Swan" events that have no historical precedent or occur under different liquidity and leverage conditions than those observed in the 2007–2021 window.
+
+
+
+## Defined Math
+
+### Log Returns
+We utilize log returns for statistical symmetry and time-additivity:
+$$r_t = \ln\left(\frac{P_t}{P_{t-1}}\right)$$
+
+### Expected Shortfall (ES)
+Calculated using the Historical Simulation method at the 95% confidence level ($\alpha = 0.05$):
+$$ES_\alpha = E[X | X \leq VaR_\alpha]$$
+This represents the expected value of the loss, given that the loss has exceeded the Value-at-Risk threshold.

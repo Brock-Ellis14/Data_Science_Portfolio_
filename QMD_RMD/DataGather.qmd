@@ -1,0 +1,284 @@
+---
+title: "Final Project Data Gather - Refactored"
+author: "Brock Ellis"
+format:
+  html:
+    self-contained: true
+    page-layout: full
+    title-block-banner: true
+    toc: true
+    toc-depth: 3
+    toc-location: body
+    number-sections: false
+    html-math-method: katex
+    code-fold: true
+    code-summary: "Show the code"
+    code-overflow: wrap
+    code-copy: hover
+    code-tools:
+        source: false
+        toggle: true
+        caption: See code
+execute: 
+  warning: false
+    
+---
+```{r setup}
+library(tidyverse)
+library(tidyquant)
+library(lubridate)
+library(RcppRoll)
+```
+
+```{r get-sp500-data}
+# Fetch S&P 500 historical data
+sp500 <- tq_get("^GSPC", 
+                get = "stock.prices",
+                from = "1960-01-01")
+```
+
+```{r get-fred-data}
+# Define FRED series to fetch
+fred_series <- c(
+  unrate = "UNRATE",
+  fedfunds = "FEDFUNDS", 
+  payem = "PAYEMS",
+  cpi = "CPIAUCSL",
+  indust = "INDPRO",
+  permits = "PERMIT",
+  money_supply = "M2SL",
+  treasury_one_year = "GS1"
+)
+
+# Fetch all economic data efficiently
+fetch_fred_series <- function(series_id, new_name) {
+  tq_get(series_id, 
+         get = "economic.data",
+         from = "1960-01-01") %>%
+    select(date, price) %>%
+    rename(!!sym(new_name) := price)
+}
+
+# Get all series and join them
+economic_data <- imap(fred_series, ~fetch_fred_series(.x, .y)) %>%
+  reduce(full_join, by = "date")
+```
+
+```{r merge-data}
+# Combine S&P 500 and economic data
+sp_data <- sp500 %>%
+  left_join(economic_data, by = "date")
+```
+
+```{r aggregate-monthly}
+# Aggregate to monthly data
+monthly_data <- sp_data %>%
+  mutate(date = as.Date(date)) %>% 
+  group_by(year = year(date), month = month(date)) %>%
+  summarise(
+    # Price data
+    open_start = first(open),
+    avg_open = mean(open),
+    close_end = last(close),
+    avg_close = mean(close),
+    sd_open = sd(open, na.rm = TRUE),
+    sd_close = sd(close, na.rm = TRUE),
+    
+    # High/Low data
+    high_max = max(high),
+    low_min = min(low),
+    sd_high = sd(high, na.rm = TRUE),
+    sd_low = sd(low, na.rm = TRUE),
+    range_hlow = max(high) - min(low),
+    
+    # Volume data
+    avg_volume = mean(volume, na.rm = TRUE),
+    sd_volume = sd(volume, na.rm = TRUE),
+    
+    # Economic indicators (take first of month)
+    across(all_of(names(fred_series)), first, .names = "{.col}"),
+    
+    .groups = 'drop'
+  ) %>%
+  mutate(percent_change = ((close_end - open_start) / open_start) * 100)
+```
+
+```{r define-war-periods}
+# Define war periods for feature engineering
+war_periods_df <- tribble(
+  ~start_date, ~end_date,
+  "1964-08-01", "1975-04-30", # Vietnam War
+  "1990-08-01", "1991-02-28", # Gulf War
+  "2001-10-01", "2011-12-31", # War in Afghanistan/Iraq
+  "2014-06-01", "2017-12-31"  # ISIS Conflict
+) %>%
+  mutate(across(c(start_date, end_date), ymd))
+```
+
+```{r feature-engineering}
+# Create lagged features and derived variables
+create_lagged_features <- function(df) {
+  df %>%
+    # Add date column
+    mutate(
+      day = 1,
+      date = make_date(year, month, day)
+    ) %>%
+    
+    # Forward fill economic data
+    fill(all_of(names(fred_series)), .direction = "down") %>%
+    
+    # Target variable (next month's return)
+    mutate(target_percent_change = lead(percent_change, n = 1)) %>%
+    
+    # Helper function for returns
+    add_returns() %>%
+    add_derived_features() %>%
+    add_time_features() %>%
+    add_lagged_statistics() %>%
+    
+    # Remove rows with missing target and clean up
+    filter(!is.na(target_percent_change)) %>%
+    na.omit()
+}
+
+# Returns calculation helper
+add_returns <- function(df) {
+  df %>%
+    mutate(
+      # CPI returns
+      cpi_1yr_ret = (cpi / lag(cpi, 12)) - 1,
+      cpi_6mo_ret = (cpi / lag(cpi, 6)) - 1,
+      cpi_2yr_ret = (cpi / lag(cpi, 24)) - 1,
+      
+      # Open returns (multiple horizons)
+      across(
+        c(open_start),
+        list(
+          `1mo_ret` = ~(. / lag(., 1)) - 1,
+          `3mo_ret` = ~(. / lag(., 3)) - 1,
+          `6mo_ret` = ~(. / lag(., 6)) - 1,
+          `1yr_ret` = ~(. / lag(., 12)) - 1,
+          `2yr_ret` = ~(. / lag(., 24)) - 1,
+          `5yr_ret` = ~(. / lag(., 60)) - 1
+        ),
+        .names = "open_{.fn}"
+      ),
+      
+      # Close returns (multiple horizons)
+      across(
+        c(close_end),
+        list(
+          `1mo_ret` = ~(. / lag(., 1)) - 1,
+          `3mo_ret` = ~(. / lag(., 3)) - 1,
+          `6mo_ret` = ~(. / lag(., 6)) - 1,
+          `1yr_ret` = ~(. / lag(., 12)) - 1,
+          `2yr_ret` = ~(. / lag(., 24)) - 1,
+          `5yr_ret` = ~(. / lag(., 60)) - 1
+        ),
+        .names = "close_{.fn}"
+      ),
+      
+      # Volume returns
+      across(
+        c(avg_volume),
+        list(
+          `1mo_ret` = ~(. / lag(., 1)) - 1,
+          `3mo_ret` = ~(. / lag(., 3)) - 1,
+          `6mo_ret` = ~(. / lag(., 6)) - 1,
+          `1yr_ret` = ~(. / lag(., 12)) - 1
+        ),
+        .names = "vol_{.fn}"
+      )
+    )
+}
+
+# Derived features helper
+add_derived_features <- function(df) {
+  df %>%
+    mutate(
+      # Real rates and policy metrics
+      real_fed_funds = fedfunds - lag(cpi_1yr_ret, 1),
+      monetary_policy_stance = fedfunds - unrate,
+      yield_curve_slope = treasury_one_year - fedfunds,
+      
+      # Momentum indicators
+      real_momentum = lag(close_1yr_ret, 1) - lag(cpi_1yr_ret, 1),
+      momentum_spread_1_12 = lag(open_1mo_ret, 1) - lag(open_1yr_ret, 1),
+      percent_change_lag1 = lag(percent_change, 1),
+      
+      # Volatility metrics
+      sd_open_1yr_avg = roll_mean(sd_open, n = 12, fill = NA, align = "right"),
+      sd_open_rel_vol = sd_open / lag(sd_open_1yr_avg, 1)
+    ) %>%
+    select(-sd_open_1yr_avg)
+}
+
+# Time-based features helper
+add_time_features <- function(df) {
+  df %>%
+    mutate(
+      # Time index
+      month_since_1960 = (year(date) - 1960) * 12 + month(date) - 1,
+      
+      # Seasonal encoding
+      month_of_year = month(date),
+      month_sin = sin(2 * pi * month_of_year / 12),
+      month_cos = cos(2 * pi * month_of_year / 12),
+      
+      # Political cycle indicators
+      election_year_flag = as.integer(year(date) %% 4 == 0),
+      midterm_year_flag = as.integer(year(date) %% 4 == 2),
+      post_election_12mo_flag = as.integer(year(date) %% 4 == 1 & month(date) <= 12),
+      
+      # War period indicator
+      is_at_war = as.integer(map_lgl(date, ~any(.x >= war_periods_df$start_date & 
+                                                  .x <= war_periods_df$end_date)))
+    )
+}
+
+# Lagged statistics helper
+add_lagged_statistics <- function(df) {
+  # Variables to lag and horizons
+  vars_to_lag <- c("unrate", "fedfunds", "payem", "indust", 
+                   "money_supply", "treasury_one_year", "permits")
+  horizons <- c(3, 6, 12, 24)
+  
+  # Price/volume statistics to lag
+  stats_to_lag <- c("sd_open", "sd_close", "avg_open", "avg_close",
+                    "high_max", "low_min", "sd_high", "sd_low", "sd_volume")
+  stat_horizons <- c(1, 3, 6, 12)
+  
+  df_result <- df
+  
+  # Add economic indicator differences
+  for (var in vars_to_lag) {
+    for (h in horizons) {
+      if (h == 3 || (var != "permits")) {  # permits only has 6mo, 1yr, 2yr
+        new_name <- paste0(var, "_", h, "mo_diff")
+        df_result <- df_result %>%
+          mutate(!!new_name := .data[[var]] - lag(.data[[var]], h))
+      }
+    }
+  }
+  
+  # Add lagged price/volume statistics
+  for (stat in stats_to_lag) {
+    for (h in stat_horizons) {
+      new_name <- paste0(stat, "_", h, "mo_lag")
+      df_result <- df_result %>%
+        mutate(!!new_name := lag(.data[[stat]], h))
+    }
+  }
+  
+  df_result
+}
+
+# Apply feature engineering
+lagged_monthly_data <- create_lagged_features(monthly_data)
+```
+
+```{r export-data}
+# Export final dataset
+write_csv(lagged_monthly_data, "my_data_final.csv")
+```

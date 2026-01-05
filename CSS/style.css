@@ -55,12 +55,36 @@ main {
 }
 
 h1 {
-  font-size: 1.75em;
+  font-size: 2.15em;
   color: #1e2a38;
-  margin-bottom: 20px;s
+  margin-bottom: 20px;
 }
 
-img {;
+h2 {
+  font-size: 1.85em;
+  color: #1e2a38;
+  margin-bottom: 20px;
+}
+
+h3 {
+  font-size: 1.65em;
+  color: #1e2a38;
+  margin-bottom: 20px;
+}
+
+h4 {
+  font-size: 1.425em;
+  color: #1e2a38;
+  margin-bottom: 20px;
+}
+
+ul {
+  font-size: 1.3em;
+  color: #1e2a38;
+  margin-bottom: 20px;
+}
+
+img {
     height: 30em;
     width: 32em;
   border-radius: 8px;
@@ -68,7 +92,7 @@ img {;
 }
 
 p {
-  font-size: 1.25em;
+  font-size: 1.3em;
   color: #555;
 }
 
