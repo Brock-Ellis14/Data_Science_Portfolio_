@@ -1,4 +1,5 @@
 This repository contains a suite of risk management modules and statistical research projects. The work is divided into core banking risk pillars (Market, Credit, and Model Risk) and exploratory research in high-dimensional biological and economic data.
+
 🏦 Banking Risk Modules (FRM)
 Market Risk – The NIM Stress TesterFocus: Interest Rate Risk in the Banking Book (IRRBB).
 Implementation: Developed a framework to stress-test Net Interest Margin (NIM) against parallel and non-parallel yield curve shifts.
